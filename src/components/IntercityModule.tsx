@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { IntercityQuery, IntercityOption } from '../types';
 import { MapPin, Users, Briefcase, Calendar, Clock, AlertTriangle, CheckCircle2, ChevronRight, Award, HelpCircle } from 'lucide-react';
+import ChaloMapView from './ChaloMapView';
 
 interface IntercityModuleProps {
   addOrderToActivity: (order: any) => void;
@@ -105,7 +106,7 @@ export default function IntercityModule({ addOrderToActivity }: IntercityModuleP
   };
 
   return (
-    <div id="intercity_module_container" className="p-4 max-w-xl mx-auto space-y-4 font-sans text-gray-800">
+    <div id="intercity_module_container" className="p-4 max-w-6xl mx-auto space-y-6 font-sans text-gray-800">
       <div className="flex items-center space-x-2 pb-2">
         <div className="p-2 bg-indigo-100 rounded-lg text-indigo-600">
           <Calendar className="w-6 h-6" />
@@ -116,32 +117,25 @@ export default function IntercityModule({ addOrderToActivity }: IntercityModuleP
         </div>
       </div>
 
-      <form onSubmit={handleCalculate} className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100 space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex items-center space-x-1.5 bg-gray-50 p-2.5 rounded-xl border border-gray-150">
-            <MapPin className="w-4 h-4 text-gray-500 shrink-0" />
-            <input
-              type="text"
-              value={pickup}
-              onChange={(e) => setPickup(e.target.value)}
-              placeholder="From City"
-              id="intercity_from_input"
-              className="w-full text-xs font-semibold outline-none bg-transparent"
-              required
-            />
-          </div>
-          <div className="flex items-center space-x-1.5 bg-gray-50 p-2.5 rounded-xl border border-gray-150">
-            <MapPin className="w-4 h-4 text-indigo-600 shrink-0" />
-            <input
-              type="text"
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              placeholder="To City"
-              id="intercity_to_input"
-              className="w-full text-xs font-semibold outline-none bg-transparent"
-              required
-            />
-          </div>
+      <form onSubmit={handleCalculate} className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100 space-y-4">
+        <div className="space-y-4">
+          <ChaloMapView 
+            label="Departure Point (From)"
+            placeholder="Search city of departure (e.g. Jaipur, Delhi)..."
+            initialValue={pickup}
+            onLocationSelect={(name) => setPickup(name)}
+            icon={<MapPin className="w-4 h-4 text-gray-500" />}
+            showMap={false}
+          />
+
+          <ChaloMapView 
+            label="Destination Point (To)"
+            placeholder="Search arrival destination (e.g. Delhi, Gurgaon, Jaipur)..."
+            initialValue={destination}
+            onLocationSelect={(name) => setDestination(name)}
+            icon={<MapPin className="w-4 h-4 text-indigo-600" />}
+            showMap={false}
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-3">

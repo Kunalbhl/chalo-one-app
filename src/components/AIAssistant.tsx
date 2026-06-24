@@ -18,7 +18,7 @@ export default function AIAssistant({
   const [messages, setMessages] = useState<any[]>([
     {
       role: 'assistant',
-      content: "👋 Namaste! I am **Chalo Super AI**. I can compare rates, ETAs, and cancel/surge policies in real time across Swiggy, Zomato, Blinkit, Zepto, Uber, Ola, Agoda and Booking.com.\n\nAsk me anything! For example:\n- *\"Cheapest way to travel Jaipur to Delhi?\"*\n- *\"Best Chicken Biryani deals under ₹300?\"*\n- *\"Cheapest milk nearby?\"*\n- *\"3-star hotel under ₹2500?\"*\n- *\"How can I save money?\"*"
+      content: "👋 Namaste! I am **Chalo AI**. I can compare rates, ETAs, and cancel/surge policies in real time across Swiggy, Zomato, Blinkit, Zepto, Uber, Ola, Agoda and Booking.com.\n\nAsk me anything! For example:\n- *\"Cheapest way to travel Jaipur to Delhi?\"*\n- *\"Best Chicken Biryani deals under ₹300?\"*\n- *\"Cheapest milk nearby?\"*\n- *\"3-star hotel under ₹2500?\"*\n- *\"How can I save money?\"*"
     }
   ]);
   const [inputVal, setInputVal] = useState('');
@@ -90,7 +90,7 @@ export default function AIAssistant({
         </div>
         <div>
           <div className="flex items-center space-x-1">
-            <h2 className="text-sm font-semibold text-gray-900 font-display">Chalo Super AI Assistant</h2>
+            <h2 className="text-sm font-semibold text-gray-900 font-display">Chalo AI Assistant</h2>
             <span className="text-[9px] bg-amber-100 text-amber-700 font-extrabold px-1.5 py-0.2 rounded uppercase">Live</span>
           </div>
           <p className="text-[11px] text-gray-500">Cross-app comparison intelligence engine powered by Gemini</p>

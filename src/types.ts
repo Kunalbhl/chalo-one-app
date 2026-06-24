@@ -251,3 +251,19 @@ export interface BiometricLog {
   details?: string; // location coordinate or action context description
 }
 
+export type BillCategory = 'Mobile' | 'Electricity' | 'Water' | 'Broadband' | 'Gas' | 'DTH';
+
+export interface SavedBill {
+  id: string;
+  category: BillCategory;
+  provider: string;
+  accountNumber: string; // Phone number or Connection ID
+  customerName: string;
+  amountDue: number;
+  dueDate: string;
+  status: 'Paid' | 'Unpaid' | 'Overdue';
+  autoPayEnabled: boolean;
+  lastPaidDate?: string;
+}
+
+

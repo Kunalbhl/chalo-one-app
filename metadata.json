@@ -1,6 +1,6 @@
 {
-  "name": "Chalo",
-  "description": "India's Everyday Super App",
+  "name": "Chalo One",
+  "description": "AI Powered One Platform, Compare, Plan, Book & Order",
   "requestFramePermissions": [
     "geolocation"
   ],

@@ -7,10 +7,15 @@ interface ReferralAndWalletProps {
   wallet: ChaloWallet;
   addCoins: (points: number) => void;
   redeemPointsToCash: (points: number) => void;
+  initialTab?: 'wallet' | 'referral';
 }
 
-export default function ReferralAndWallet({ wallet, addCoins, redeemPointsToCash }: ReferralAndWalletProps) {
-  const [activeTab, setActiveTab] = useState<'wallet' | 'referral'>('wallet');
+export default function ReferralAndWallet({ wallet, addCoins, redeemPointsToCash, initialTab = 'wallet' }: ReferralAndWalletProps) {
+  const [activeTab, setActiveTab] = useState<'wallet' | 'referral'>(initialTab);
+
+  React.useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
   const [redeemPoints, setRedeemPoints] = useState<string>('2000');
   const [transferPhone, setTransferPhone] = useState('');
   const [transferAmount, setTransferAmount] = useState('');

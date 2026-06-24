@@ -3,6 +3,7 @@ import { RIDE_CATALOG } from '../data';
 import { RideOption, SelectedRide } from '../types';
 import { MapPin, Navigation, Compass, ShieldAlert, PhoneCall, Star, Clock, AlertCircle, Sparkles, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import ChaloMapView from './ChaloMapView';
 
 interface RidesModuleProps {
   preferenceMode: string;
@@ -130,7 +131,7 @@ export default function RidesModule({
   });
 
   return (
-    <div id="rides_module_container" className="p-4 max-w-xl mx-auto space-y-4 font-sans text-gray-800">
+    <div id="rides_module_container" className="p-4 max-w-6xl mx-auto space-y-6 font-sans text-gray-800">
       <div className="flex items-center space-x-2 pb-2">
         <div className="p-2 bg-amber-100 rounded-lg text-amber-600">
           <Navigation className="w-6 h-6 animate-pulse" />
@@ -143,31 +144,24 @@ export default function RidesModule({
 
       {/* Main Form Fields */}
       {!selectedRide && (
-        <form onSubmit={handleCompare} className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100 space-y-3">
-          <div className="flex items-center space-x-2 border-b border-gray-100 pb-2">
-            <MapPin className="w-5 h-5 text-emerald-500 shrink-0" />
-            <input
-              type="text"
-              value={pickup}
-              onChange={(e) => setPickup(e.target.value)}
-              placeholder="Pickup Location"
-              id="pickup_input"
-              className="w-full text-sm outline-none font-medium placeholder-gray-400"
-              required
-            />
-          </div>
-          <div className="flex items-center space-x-2 pt-1">
-            <Compass className="w-5 h-5 text-amber-500 shrink-0" />
-            <input
-              type="text"
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              placeholder="Enter Drop Location (e.g. Airport, Whitefield)"
-              id="drop_input"
-              className="w-full text-sm outline-none font-medium focus:text-amber-600 placeholder-gray-400"
-              required
-            />
-          </div>
+        <form onSubmit={handleCompare} className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100 space-y-4">
+          <ChaloMapView 
+            label="Pickup Location"
+            placeholder="Search pickup location (e.g. Koramangala, Airport)..."
+            initialValue={pickup}
+            onLocationSelect={(name) => setPickup(name)}
+            icon={<MapPin className="w-4 h-4 text-emerald-500" />}
+            showMap={false}
+          />
+
+          <ChaloMapView 
+            label="Drop Destination"
+            placeholder="Search drop destination (e.g. Whitefield, Indiranagar)..."
+            initialValue={destination}
+            onLocationSelect={(name) => setDestination(name)}
+            icon={<Compass className="w-4 h-4 text-amber-500" />}
+            showMap={false}
+          />
 
           <button
             type="submit"

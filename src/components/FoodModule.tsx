@@ -337,21 +337,17 @@ export default function FoodModule({
   const [recentSearches, setRecentSearches] = useState<string[]>(['Biryani', 'Cheese Pizza', 'Garlic Bread']);
   const [searchFocused, setSearchFocused] = useState(false);
   
-  // Diet filter state initialized dynamically based on preference configurations
-  const [dietFilter, setDietFilter] = useState<'All' | 'Veg' | 'Non-Veg' | 'Eggetarian'>('All');
+  // Diet filter state initialized to 'Non-Veg' only as requested by primary diet preferences
+  const [dietFilter, setDietFilter] = useState<'All' | 'Veg' | 'Non-Veg' | 'Eggetarian'>('Non-Veg');
   const [selectedRestaurant, setSelectedRestaurant] = useState<DetailedRestaurant | null>(null);
 
   // Compare Panel state variables
   const [focusedDishId, setFocusedDishId] = useState<string | null>(null);
 
-  // Initialize diet filter on component load using default preferences
+  // Always force 'Non-Veg' only as requested
   useEffect(() => {
-    if (defaultFoodType && defaultFoodType !== "Doesn't Matter") {
-      setDietFilter(defaultFoodType as any);
-    } else {
-      setDietFilter('All');
-    }
-  }, [defaultFoodType]);
+    setDietFilter('Non-Veg');
+  }, []);
 
   const handleSearchSubmit = (val: string) => {
     setSearchQuery(val);
@@ -539,24 +535,17 @@ export default function FoodModule({
           {/* DIET SELECTION CHIPS FOR MAIN DIRECTORY */}
           <div className="flex items-center justify-between pb-1">
             <div className="flex space-x-1.5 overflow-x-auto scrollbar-none items-center">
-              {(['All', 'Veg', 'Non-Veg', 'Eggetarian'] as const).map(type => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => setDietFilter(type)}
-                  className={`px-3 py-1 rounded-xl text-[10.5px] font-black transition cursor-pointer ${
-                    dietFilter === type 
-                      ? 'bg-rose-600 text-white shadow-xs' 
-                      : 'bg-white text-gray-600 border border-gray-150 hover:bg-gray-50'
-                  }`}
-                >
-                  {type === 'All' ? '🍽 Doesn\'t Matter' : type === 'Veg' ? '🟢 Pure Veg' : type === 'Non-Veg' ? '🔴 Non-Veg' : '🟡 Eggetarian'}
-                </button>
-              ))}
+              <button
+                type="button"
+                className="px-4 py-1.5 rounded-xl text-[10.5px] font-black transition cursor-default bg-rose-600 text-white shadow-xs flex items-center space-x-1"
+              >
+                <span>🔴 Non-Veg Only</span>
+              </button>
+              <span className="text-[10px] text-slate-400 font-mono italic">Primary diet selection preset to Non-Veg</span>
             </div>
             
             <span className="text-[9.5px] text-gray-400 font-mono tracking-tighter">
-              Def: {defaultFoodType || "Doesn't Matter"}
+              Def: Non-Veg
             </span>
           </div>
 
@@ -682,21 +671,8 @@ export default function FoodModule({
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 font-mono">Menu Filter</span>
             </div>
 
-            <div className="flex space-x-1 overflow-x-auto scrollbar-none">
-              {(['All', 'Veg', 'Non-Veg', 'Eggetarian'] as const).map(type => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => setDietFilter(type)}
-                  className={`px-3 py-1 rounded-xl text-[10px] font-black transition cursor-pointer ${
-                    dietFilter === type 
-                      ? 'bg-rose-500 text-white' 
-                      : 'bg-gray-50 text-slate-600 hover:bg-gray-100 border border-gray-200'
-                  }`}
-                >
-                  {type === 'All' ? 'Doesn\'t Matter' : type}
-                </button>
-              ))}
+            <div className="flex space-x-1 overflow-x-auto scrollbar-none items-center">
+              <span className="px-2.5 py-1 rounded-lg text-[9.5px] font-black bg-rose-500 text-white font-mono">🔴 NON-VEG DIET ENFORCED</span>
             </div>
           </div>
 

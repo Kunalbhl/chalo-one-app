@@ -64,6 +64,8 @@ interface AccountPageProps {
   addCoins: (amount: number) => void;
   redeemPointsToCash: (pts: number) => void;
   onLogout?: () => void;
+  initialSection?: string;
+  activities?: any[];
 }
 
 export default function AccountPage({
@@ -83,12 +85,21 @@ export default function AccountPage({
   wallet,
   addCoins,
   redeemPointsToCash,
-  onLogout
+  onLogout,
+  initialSection,
+  activities = []
 }: AccountPageProps) {
   // Navigation inside Account page
   const [activeSection, setActiveSection] = useState<
-    'main' | 'linked_accounts' | 'rules_prefs' | 'security_audit' | 'help_support' | 'payments' | 'saved_addresses'
+    'main' | 'linked_accounts' | 'rules_prefs' | 'security_audit' | 'help_support' | 'payments' | 'saved_addresses' | 'edit_profile' | 'founder_affiliate'
   >('main');
+
+  // Sync active section on initialSection mount
+  React.useEffect(() => {
+    if (initialSection) {
+      setActiveSection(initialSection as any);
+    }
+  }, [initialSection]);
 
   // Edit Profile States
   const [isEditingProfile, setIsEditingProfile] = useState<boolean>(false);
@@ -97,7 +108,17 @@ export default function AccountPage({
   const [profileEmail, setProfileEmail] = useState<string>(userProfile.email);
   const [profileDob, setProfileDob] = useState<string>(userProfile.dob || '');
   const [profileGender, setProfileGender] = useState<string>(userProfile.gender || 'Male');
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState<string>(userProfile.avatarUrl || '');
   const [profileSaveSuccess, setProfileSaveSuccess] = useState<boolean>(false);
+
+  // Platform Linking Modal states
+  const [linkingItem, setLinkingItem] = useState<any | null>(null);
+  const [linkEmail, setLinkEmail] = useState<string>('');
+  const [linkPassword, setLinkPassword] = useState<string>('');
+  const [showLinkPassword, setShowLinkPassword] = useState<boolean>(false);
+  const [isVerifyingLink, setIsVerifyingLink] = useState<boolean>(false);
+  const [isLinkSuccess, setIsLinkSuccess] = useState<boolean>(false);
+  const [isReLoginCheck, setIsReLoginCheck] = useState<boolean>(false);
 
   // Security Audit state locks
   const [isAuditUnlocked, setIsAuditUnlocked] = useState<boolean>(false);
@@ -331,7 +352,7 @@ export default function AccountPage({
   };
 
   return (
-    <div id="account_page_root_container" className="p-4 max-w-xl mx-auto space-y-4 font-sans text-gray-800 pb-24">
+    <div id="account_page_root_container" className="p-4 max-w-6xl mx-auto space-y-6 font-sans text-gray-800 pb-24">
       
       {/* HEADER SWITCH */}
       {activeSection !== 'main' && (
@@ -358,9 +379,18 @@ export default function AccountPage({
             
             <div className="flex justify-between items-start pb-3 border-b border-gray-100 flex-wrap gap-2">
               <div className="flex items-center space-x-3.5">
-                <div className="w-12 h-12 bg-amber-100 ring-2 ring-amber-400 text-amber-800 rounded-full flex items-center justify-center font-black text-base uppercase shadow-sm select-none">
-                  {userProfile.name.slice(0,2).toUpperCase()}
-                </div>
+                {userProfile.avatarUrl ? (
+                  <img 
+                    src={userProfile.avatarUrl} 
+                    alt={userProfile.name} 
+                    className="w-12 h-12 rounded-full object-cover ring-2 ring-amber-400 shadow-xs select-none"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="w-12 h-12 bg-amber-100 ring-2 ring-amber-400 text-amber-800 rounded-full flex items-center justify-center font-black text-sm uppercase shadow-sm select-none">
+                    {userProfile.name.slice(0,2).toUpperCase()}
+                  </div>
+                )}
                 <div>
                   <span className="text-[9px] font-mono tracking-widest font-black uppercase text-amber-600 block bg-amber-50 px-1.5 py-0.5 rounded-sm w-fit border border-amber-200">
                     Chalo Account Holder
@@ -374,119 +404,69 @@ export default function AccountPage({
 
               <button
                 type="button"
-                onClick={() => setIsEditingProfile(!isEditingProfile)}
-                className="p-1.5 bg-zinc-50 hover:bg-zinc-100 text-gray-800 border-2 border-gray-150 rounded-xl transition text-[10.5px] font-bold tracking-tight uppercase flex items-center space-x-1 shrink-0"
+                onClick={() => {
+                  setActiveSection('edit_profile');
+                  setProfileName(userProfile.name);
+                  setProfilePhone(userProfile.phone);
+                  setProfileEmail(userProfile.email);
+                  setProfileDob(userProfile.dob || '');
+                  setProfileGender(userProfile.gender || 'Male');
+                  setProfileAvatarUrl(userProfile.avatarUrl || '');
+                }}
+                className="p-1.5 bg-zinc-50 hover:bg-zinc-100 text-gray-800 border-2 border-gray-150 rounded-xl transition text-[10.5px] font-bold tracking-tight uppercase flex items-center space-x-1 shrink-0 cursor-pointer"
               >
-                {isEditingProfile ? <X className="w-3.5 h-3.5" /> : <Edit className="w-3.5 h-3.5" />}
-                <span>{isEditingProfile ? 'Cancel' : 'Edit Profile'}</span>
+                <Edit className="w-3.5 h-3.5" />
+                <span>Edit Profile</span>
               </button>
             </div>
 
-            {/* Profile fields details (regular view or edit form fields) */}
-            {isEditingProfile ? (
-              <form onSubmit={handleSaveProfile} className="space-y-3.5 pt-4">
-                <div className="grid grid-cols-2 gap-3.5">
-                  <div className="flex flex-col space-y-1">
-                    <label className="text-[9.5px] font-mono font-black uppercase text-gray-400 tracking-wider">Full Name</label>
-                    <input
-                      type="text"
-                      value={profileName}
-                      onChange={(e) => setProfileName(e.target.value)}
-                      className="bg-gray-50 border border-gray-150 p-2 text-xs rounded-xl font-bold text-gray-800 focus:ring-1 focus:ring-amber-500 outline-none"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col space-y-1">
-                    <label className="text-[9.5px] font-mono font-black uppercase text-gray-400 tracking-wider">Mobile Number</label>
-                    <input
-                      type="text"
-                      value={profilePhone}
-                      onChange={(e) => setProfilePhone(e.target.value)}
-                      className="bg-gray-50 border border-gray-150 p-2 text-xs rounded-xl font-bold text-gray-800 focus:ring-1 focus:ring-amber-500 outline-none"
-                      required
-                    />
-                  </div>
+            {/* Profile fields details (regular display with DD-MM-YYYY Date of Birth format) */}
+            <div className="pt-3.5 space-y-3.5 text-xs">
+              {profileSaveSuccess && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-2.5 flex items-center space-x-2 animate-pulse">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                  <span className="text-[10px] uppercase font-bold tracking-tight">Kunal profile updated instantly! Saved in app.</span>
                 </div>
-
-                <div className="grid grid-cols-1 gap-3.5">
-                  <div className="flex flex-col space-y-1">
-                    <label className="text-[9.5px] font-mono font-black uppercase text-gray-400 tracking-wider">Email Address</label>
-                    <input
-                      type="email"
-                      value={profileEmail}
-                      onChange={(e) => setProfileEmail(e.target.value)}
-                      className="bg-gray-50 border border-gray-150 p-2 text-xs rounded-xl font-bold text-gray-800 focus:ring-1 focus:ring-amber-500 outline-none"
-                      required
-                    />
-                  </div>
+              )}
+              <div className="grid grid-cols-2 gap-3.5 text-[11px] font-medium text-gray-600">
+                <div>
+                  <span className="text-[8px] font-mono font-bold block text-gray-400 uppercase">Phone contact</span>
+                  <strong className="text-gray-900 font-bold text-xs">{userProfile.phone}</strong>
                 </div>
-
-                <div className="grid grid-cols-2 gap-3.5">
-                  <div className="flex flex-col space-y-1">
-                    <label className="text-[9.5px] font-mono font-black uppercase text-gray-400 tracking-wider">Date of Birth</label>
-                    <input
-                      type="date"
-                      value={profileDob}
-                      onChange={(e) => setProfileDob(e.target.value)}
-                      className="bg-gray-50 border border-gray-150 p-2 text-xs rounded-xl font-bold text-gray-800 focus:ring-1 focus:ring-amber-500 outline-none"
-                    />
-                  </div>
-                  <div className="flex flex-col space-y-1">
-                    <label className="text-[9.5px] font-mono font-black uppercase text-gray-400 tracking-wider">Gender</label>
-                    <select
-                      value={profileGender}
-                      onChange={(e) => setProfileGender(e.target.value)}
-                      className="bg-gray-50 border border-gray-150 p-2 text-xs rounded-xl font-bold text-gray-800 focus:ring-1 focus:ring-amber-500 outline-none"
-                    >
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                      <option value="Other">Other</option>
-                      <option value="Prefer not to say">Prefer not to say</option>
-                    </select>
-                  </div>
+                <div>
+                  <span className="text-[8px] font-mono font-bold block text-gray-400 uppercase">Gender identity</span>
+                  <strong className="text-gray-900 font-bold text-xs">{userProfile.gender}</strong>
                 </div>
-
-                <button
-                  type="submit"
-                  className="w-full bg-amber-500 hover:bg-amber-600 text-white py-2.5 rounded-xl font-black text-xs font-display tracking-wider uppercase transition border-b-2 border-amber-650 cursor-pointer flex items-center justify-center space-x-1.5"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>Update Profile Data</span>
-                </button>
-              </form>
-            ) : (
-              <div className="pt-3.5 space-y-3.5 text-xs">
-                {profileSaveSuccess && (
-                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-2.5 flex items-center space-x-2 animate-pulse">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                    <span className="text-[10px] uppercase font-bold tracking-tight">Kunal profile updated instantly! Saved in app.</span>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-3.5 text-[11px] font-medium text-gray-600">
-                  <div>
-                    <span className="text-[8px] font-mono font-bold block text-gray-400 uppercase">Phone contact</span>
-                    <strong className="text-gray-900 font-bold text-xs">{userProfile.phone}</strong>
-                  </div>
-                  <div>
-                    <span className="text-[8px] font-mono font-bold block text-gray-400 uppercase">Gender identity</span>
-                    <strong className="text-gray-900 font-bold text-xs">{userProfile.gender}</strong>
-                  </div>
-                  <div>
-                    <span className="text-[8px] font-mono font-bold block text-gray-400 uppercase">DOB Statement</span>
-                    <strong className="text-gray-900 font-bold text-xs">{userProfile.dob || '1998-05-15'}</strong>
-                  </div>
-                  <div>
-                    <span className="text-[8px] font-mono font-bold block text-gray-400 uppercase">Referrals Badge</span>
-                    <strong className="text-amber-650 font-bold text-sm font-mono tracking-wider">{userProfile.referralCode}</strong>
-                  </div>
+                <div>
+                  <span className="text-[8px] font-mono font-bold block text-gray-400 uppercase">Date of Birth</span>
+                  <strong className="text-gray-900 font-bold text-xs">
+                    {(() => {
+                      const dobStr = userProfile.dob || '1998-05-15';
+                      const parts = dobStr.split('-');
+                      if (parts.length === 3) {
+                        return `${parts[2]}-${parts[1]}-${parts[0]}`;
+                      }
+                      return dobStr;
+                    })()}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-[8px] font-mono font-bold block text-gray-400 uppercase">Referrals Badge</span>
+                  <strong className="text-amber-650 font-bold text-sm font-mono tracking-wider">{userProfile.referralCode}</strong>
                 </div>
               </div>
-            )}
+            </div>
           </div>
 
           {/* LIST OPTIONS AS SECTIONS TO TAP */}
           <div className="bg-white rounded-3xl border border-gray-150 shadow-xs divide-y divide-gray-100 overflow-hidden">
             {[
+              ...(userProfile.email.toLowerCase() === 'kunalpareekusa@gmail.com' ? [{
+                id: 'founder_affiliate',
+                title: '👑 Founder Affiliate Program Suite',
+                desc: 'Manage commission rates, affiliate links, and super admin analytics',
+                badge: 'Super Admin'
+              }] : []),
               {
                 id: 'linked_accounts',
                 title: '🔗 Linked Aggregator Accounts',
@@ -550,6 +530,25 @@ export default function AccountPage({
                 </div>
               </button>
             ))}
+          </div>
+
+          {/* 🚪 SIGN-OUT / LOGOUT BUTTON */}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Are you sure you want to log out of Chalo Super App?')) {
+                  if (onLogout) {
+                    onLogout();
+                  } else {
+                    alert('Log out action selected.');
+                  }
+                }
+              }}
+              className="w-full py-3.5 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 border border-rose-200 rounded-3xl text-[11px] font-black uppercase tracking-wider flex items-center justify-center space-x-1.5 transition cursor-pointer font-sans"
+            >
+              <span>🚪 Sign Out & Lock Chalo Wallet</span>
+            </button>
           </div>
 
         </div>
@@ -665,18 +664,32 @@ export default function AccountPage({
                                 <div className="bg-slate-50 border border-slate-150 p-1.5 px-2.5 rounded-xl text-[9px] font-mono text-slate-500 space-y-1 block mt-1.5 max-w-sm">
                                   <div className="flex items-center justify-between">
                                     <span>🔑 Verified Login Ref:</span>
-                                    <button 
-                                      type="button" 
-                                      onClick={() => {
-                                        alert(`Sovereign Platform Redirection Indicator: Opening secure login wrapper inside sandbox env for "${item.label}" oauth sync token verification.`);
-                                        window.open(item.docUrl, '_blank');
-                                      }}
-                                      className="text-amber-600 font-black cursor-pointer uppercase hover:underline text-[8px]"
-                                    >
-                                      Redirect to Platform ↗
-                                    </button>
+                                    <div className="flex space-x-2">
+                                      <button 
+                                        type="button" 
+                                        onClick={() => {
+                                          setLinkingItem(item);
+                                          setIsReLoginCheck(true);
+                                        }}
+                                        className="text-indigo-650 font-black cursor-pointer uppercase hover:underline text-[8px]"
+                                        title="Re-login if credentials changed externally"
+                                      >
+                                        🔄 Re-Login / Verify
+                                      </button>
+                                      <button 
+                                        type="button" 
+                                        onClick={() => {
+                                          alert(`Sovereign Platform Redirection Indicator: Opening secure login wrapper inside sandbox env for "${item.label}" oauth sync token verification.`);
+                                          window.open(item.docUrl, '_blank');
+                                        }}
+                                        className="text-amber-600 font-black cursor-pointer uppercase hover:underline text-[8px]"
+                                      >
+                                        Open ↗
+                                      </button>
+                                    </div>
                                   </div>
                                   <p className="font-bold text-slate-800 tracking-tight leading-none truncate">{item.cred}</p> 
+                                  <span className="text-[7.5px] bg-emerald-50 text-emerald-700 font-sans font-extrabold p-0.5 px-1 rounded block w-fit">● Session verified & active</span>
                                 </div>
                               )}
                             </div>
@@ -703,16 +716,22 @@ export default function AccountPage({
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setConnectedAccounts({
-                                    ...connectedAccounts,
-                                    [item.key]: !isLinked
-                                  });
-                                  alert(`Platform status update: "${item.label}" ${!isLinked ? 'Linked successfully with verified credential tokens.' : 'Unlinked successfully.'}`);
+                                  if (isLinked) {
+                                    if (window.confirm(`Are you sure you want to unlink your "${item.label}" account from Chalo Super App?`)) {
+                                      setConnectedAccounts({
+                                        ...connectedAccounts,
+                                        [item.key]: false
+                                      });
+                                    }
+                                  } else {
+                                    setLinkingItem(item);
+                                    setIsReLoginCheck(false);
+                                  }
                                 }}
                                 className={`text-[9.5px] font-black px-3.5 py-1.5 rounded-xl border transition cursor-pointer uppercase tracking-tight ${
                                   isLinked 
                                     ? 'bg-rose-50 border-rose-150 text-rose-600 hover:bg-rose-100' 
-                                    : 'bg-emerald-500 border-emerald-600 hover:bg-emerald-600 text-white'
+                                    : 'bg-emerald-500 border-emerald-600 hover:bg-emerald-600 text-white animate-pulse'
                                 }`}
                               >
                                 {isLinked ? 'Unlink' : 'Link'}
@@ -737,28 +756,33 @@ export default function AccountPage({
                   <h3 className="font-display font-black text-gray-950 text-sm mt-0.5 uppercase">Price Comparison Engine</h3>
                 </div>
 
-                <div className="grid grid-cols-1 gap-2.5">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                   {[
-                    { val: 'cheapest', label: '💰 Cheapest Option First', desc: 'Pre-calculate net prices (fares + delivery - coupons) first.' },
-                    { val: 'fastest', label: '⚡ Fastest Duration First', desc: 'Prioritize drivers and menus within <12 mins.' },
-                    { val: 'rated', label: '⭐ Highest Rating First', desc: 'Restrict selection to 4.5+ star captains and kitchens.' },
-                    { val: 'ai', label: '🧠 Smart Recommended AI', desc: 'Let Chalo AI scan optimal routes based on time-of-day.' }
+                    { val: 'cheapest', label: '💰 Cheapest First', desc: 'Pre-calculate net prices (fares + coupons)' },
+                    { val: 'fastest', label: '⚡ Fastest Duration', desc: 'Prioritize quick drivers <12 mins' },
+                    { val: 'rated', label: '⭐ Highest Rating', desc: 'Restrict selection to 4.5+ stars' },
+                    { val: 'ai', label: '🧠 Smart Recommended', desc: 'Optimal AI scanning' }
                   ].map(opt => (
                     <button
                       key={opt.val}
                       type="button"
                       onClick={() => setPreferences({ ...preferences, preferenceMode: opt.val as any })}
-                      className={`p-3 rounded-xl border text-left flex items-start justify-between cursor-pointer transition ${
-                        preferences.preferenceMode === opt.val ? 'bg-amber-50/50 border-amber-450 text-amber-950 font-bold' : 'bg-white border-gray-150 hover:bg-gray-50'
+                      className={`p-2.5 rounded-2xl border text-left flex flex-col justify-between cursor-pointer transition h-24 ${
+                        preferences.preferenceMode === opt.val ? 'bg-amber-50/75 border-amber-450 text-amber-950 font-bold shadow-xs' : 'bg-white border-gray-150 hover:bg-gray-50'
                       }`}
                     >
                       <div className="space-y-0.5">
-                        <span className="text-xs font-bold text-gray-900 leading-tight block">{opt.label}</span>
-                        <span className="text-[10.5px] text-gray-400 font-medium leading-relaxed block">{opt.desc}</span>
+                        <span className="text-[11px] font-black leading-tight block">{opt.label}</span>
+                        <span className="text-[9.5px] text-gray-400 font-medium leading-snug block line-clamp-2">{opt.desc}</span>
                       </div>
-                      {preferences.preferenceMode === opt.val && (
-                        <CheckCircle2 className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                      )}
+                      <div className="flex items-center justify-between w-full mt-1 pt-1 border-t border-gray-100">
+                        <span className="text-[8px] font-mono uppercase text-gray-400 font-bold">
+                          {preferences.preferenceMode === opt.val ? 'Active' : 'Select'}
+                        </span>
+                        {preferences.preferenceMode === opt.val && (
+                          <CheckCircle2 className="w-3 h-3 text-amber-500 shrink-0" />
+                        )}
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -1839,6 +1863,505 @@ export default function AccountPage({
             </div>
           )}
 
+          {/* G. DEDICATED EDIT PROFILE PAGE */}
+          {activeSection === 'edit_profile' && (
+            <div className="bg-white p-5 rounded-3xl border border-gray-150 shadow-xs space-y-4 animate-fade-in" id="section_edit_profile">
+              <div className="flex items-center justify-between pb-2.5 border-b border-gray-100">
+                <div>
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest block">Modify Profile Credentials</h3>
+                  <p className="text-[10.5px] text-gray-400 mt-0.5 font-medium">Manage display picture, secure contacts, and verified profile credentials.</p>
+                </div>
+                <User className="w-5 h-5 text-indigo-550 shrink-0" />
+              </div>
+
+              <form onSubmit={handleSaveProfile} className="space-y-4 text-xs text-slate-800">
+                {/* Profile Picture Upload & Select Presets */}
+                <div className="space-y-2 bg-slate-50 p-3.5 rounded-2xl border border-slate-150">
+                  <span className="text-[9.5px] font-mono font-black text-slate-400 uppercase tracking-wider block">Profile Identity Picture</span>
+                  <div className="flex items-center space-x-4">
+                    {profileAvatarUrl ? (
+                      <img 
+                        src={profileAvatarUrl} 
+                        alt="Current Avatar" 
+                        className="w-14 h-14 rounded-full object-cover ring-2 ring-indigo-500 shadow-sm"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-14 h-14 bg-indigo-650 text-white rounded-full flex items-center justify-center font-display font-black text-lg uppercase shadow-sm">
+                        {profileName.slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    
+                    {/* Preset choices list */}
+                    <div className="flex-1 space-y-2">
+                      <p className="text-[10px] text-gray-400 font-semibold leading-none">Select a preset avatar:</p>
+                      <div className="flex space-x-2">
+                        {[
+                          'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=150',
+                          'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?auto=format&fit=crop&q=80&w=150',
+                          'https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?auto=format&fit=crop&q=80&w=150',
+                          'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&q=80&w=150'
+                        ].map((av, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => setProfileAvatarUrl(av)}
+                            className={`w-7.5 h-7.5 rounded-full border overflow-hidden shrink-0 transition cursor-pointer ${
+                              profileAvatarUrl === av ? 'border-indigo-600 scale-110 ring-2 ring-indigo-500/10' : 'border-transparent opacity-60 hover:opacity-100'
+                            }`}
+                          >
+                            <img src={av} alt="Preset Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Manual file custom upload */}
+                  <div className="flex items-center space-x-2 bg-white p-2 rounded-xl border border-gray-150 mt-1">
+                    <span className="text-[9px] text-gray-550 font-mono font-bold uppercase shrink-0">Upload Custom Image:</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setProfileAvatarUrl(reader.result as string);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className="text-[9px] text-gray-550 cursor-pointer file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[9px] file:font-bold file:bg-gray-100 file:text-slate-700 hover:file:bg-gray-200"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col space-y-1">
+                    <label className="text-[9.5px] font-mono font-black uppercase text-gray-400 tracking-wider">Full Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={profileName}
+                      onChange={(e) => setProfileName(e.target.value)}
+                      className="bg-gray-50 border border-gray-150 p-2.5 text-xs rounded-xl font-bold text-gray-800 focus:bg-white focus:ring-1 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-col space-y-1">
+                    <label className="text-[9.5px] font-mono font-black uppercase text-gray-400 tracking-wider">Mobile Contact</label>
+                    <input
+                      type="text"
+                      required
+                      value={profilePhone}
+                      onChange={(e) => setProfilePhone(e.target.value)}
+                      className="bg-gray-50 border border-gray-150 p-2.5 text-xs rounded-xl font-bold text-gray-800 focus:bg-white focus:ring-1 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col space-y-1">
+                  <label className="text-[9.5px] font-mono font-black uppercase text-gray-400 tracking-wider">Email Coordinates</label>
+                  <input
+                    type="email"
+                    required
+                    value={profileEmail}
+                    onChange={(e) => setProfileEmail(e.target.value)}
+                    className="bg-gray-50 border border-gray-150 p-2.5 text-xs rounded-xl font-bold text-gray-800 focus:bg-white focus:ring-1 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col space-y-1">
+                    <label className="text-[9.5px] font-mono font-black uppercase text-gray-400 tracking-wider">Date of Birth</label>
+                    <input
+                      type="date"
+                      required
+                      value={profileDob}
+                      onChange={(e) => setProfileDob(e.target.value)}
+                      className="bg-gray-50 border border-gray-150 p-2.5 text-xs rounded-xl font-bold text-gray-800 focus:bg-white focus:ring-1 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-col space-y-1">
+                    <label className="text-[9.5px] font-mono font-black uppercase text-gray-400 tracking-wider">Gender</label>
+                    <select
+                      value={profileGender}
+                      onChange={(e) => setProfileGender(e.target.value)}
+                      className="bg-gray-50 border border-gray-150 p-2.5 text-xs rounded-xl font-bold text-gray-800 focus:bg-white focus:ring-1 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                      <option value="Prefer not to say">Prefer not to say</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="submit"
+                    className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-amber-950 font-black text-[11px] rounded-xl cursor-pointer transition uppercase font-mono tracking-wide shadow-xs"
+                  >
+                    Save Changes & Sync 💾
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection('main')}
+                    className="px-5 py-3 bg-gray-100 hover:bg-gray-200 text-slate-600 font-bold text-[11px] rounded-xl cursor-pointer transition uppercase"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* H. VIP FOUNDER AFFILIATE PROGRAM SUITE (SUPER ADMIN ONLY) */}
+          {activeSection === 'founder_affiliate' && (
+            <div className="bg-slate-900 text-white p-6 rounded-3xl border border-slate-850 shadow-2xl space-y-6 animate-fade-in" id="section_founder_affiliate">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-800">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="bg-amber-400 text-slate-950 font-mono text-[9px] font-black px-2 py-0.5 rounded uppercase">Super Admin VIP</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Live Affiliate Desk</span>
+                  </div>
+                  <h3 className="text-lg font-display font-black text-white mt-1">👑 Chalo App Founder Affiliate Program</h3>
+                  <p className="text-xs text-slate-400">Commission management console, active UTM campaign conversions, and real-time revenue clearance.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveSection('main')}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white rounded-xl text-[10px] font-bold uppercase tracking-wider cursor-pointer transition"
+                >
+                  ◀ Back to Menu
+                </button>
+              </div>
+
+              {/* Commission Rate Dynamic Controller */}
+              <div className="bg-slate-850 p-5 rounded-2xl border border-slate-800 space-y-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">Default Conversion Commission Rate</h4>
+                    <p className="text-[10.5px] text-slate-400">Applies immediately to all Ride, Stay, Food and Mart referral orders.</p>
+                  </div>
+                  <span className="text-xl font-mono font-black text-white bg-slate-900 border border-slate-750 px-3 py-1 rounded-lg">
+                    12.0%
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  <input 
+                    type="range" 
+                    min="1" 
+                    max="30" 
+                    defaultValue="12"
+                    className="w-full accent-amber-400 cursor-pointer" 
+                    id="affiliate_rate_slider"
+                    onChange={(e) => {
+                      const badge = document.getElementById('affiliate_rate_badge');
+                      if (badge) badge.innerText = `${e.target.value}% Commission Active`;
+                    }}
+                  />
+                  <div className="flex justify-between text-[9px] text-slate-500 font-mono">
+                    <span>1% (Minimum)</span>
+                    <span id="affiliate_rate_badge" className="text-amber-500 font-bold">12% Commission Active</span>
+                    <span>30% (VIP Maximum)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Earnings Overview Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                  { label: "Total Affiliate Clicks", val: "14,820 clicks", pct: "+18.2%", labelColor: "text-slate-400" },
+                  { label: "Active Affiliate Installs", val: "3,140 signups", pct: "21.1% Conv.", labelColor: "text-slate-400" },
+                  { label: "Cleared Commissions", val: "₹82,450.00", pct: "Paid instantly", labelColor: "text-amber-400" },
+                  { label: "Pending Clearance", val: "₹12,190.00", pct: "Arriving in 48h", labelColor: "text-emerald-400" }
+                ].map((stat, i) => (
+                  <div key={i} className="bg-slate-850 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between">
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block font-mono">{stat.label}</span>
+                    <div className="my-2">
+                      <span className={`text-sm md:text-base font-display font-black ${stat.labelColor}`}>{stat.val}</span>
+                    </div>
+                    <span className="text-[8.5px] font-mono font-extrabold text-slate-450 bg-slate-900 px-1.5 py-0.5 rounded w-max mt-1">{stat.pct}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Dynamic Commission Log from user bookings */}
+              <div className="bg-slate-850 rounded-2xl border border-slate-800 overflow-hidden">
+                <div className="px-4 py-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
+                  <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider font-mono">Real-Time Referral Booking Conversions</h4>
+                  <span className="text-[9px] font-bold text-slate-400">Live Web Stream</span>
+                </div>
+
+                <div className="divide-y divide-slate-800 max-h-72 overflow-y-auto">
+                  {/* Map the active activities */}
+                  {activities && activities.length > 0 ? (
+                    activities.map((act: any, i: number) => {
+                      const cost = typeof act.amount === 'number' ? act.amount : parseFloat(String(act.amount || '0').replace(/[^0-9.]/g, ''));
+                      const commission = (cost * 0.12).toFixed(2);
+                      return (
+                        <div key={i} className="px-4 py-3.5 flex items-center justify-between hover:bg-slate-800/40 transition text-xs">
+                          <div className="flex items-start space-x-3">
+                            <span className="text-lg shrink-0 mt-0.5">👑</span>
+                            <div>
+                              <div className="font-extrabold text-white uppercase tracking-wide">
+                                {act.title || 'Referral Booking'}
+                              </div>
+                              <div className="text-[10px] text-slate-450 font-mono mt-0.5">
+                                User Ref: <span className="text-slate-300">@{userProfile.referralCode}</span> | ID: CHALO_REF_{i+948}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs font-black text-amber-400">
+                              +₹{commission}
+                            </div>
+                            <div className="text-[8px] font-mono text-slate-500 mt-0.5">
+                              12% of ₹{cost} Booking
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : null}
+
+                  {/* Static simulated recent referral log to populate nicely */}
+                  {[
+                    { title: "Hotel Stay: Calangute Beach, North Goa", cost: 7200, user: "chalo_shreya9" },
+                    { title: "Rides Compare: Uber XL, Airport to Koramangala", cost: 1250, user: "chalo_anirudh2" },
+                    { title: "Intercity Cab: Jaipur to Delhi NCR", cost: 4800, user: "chalo_kunalp1" },
+                    { title: "Food Saver Pool: Behrouz Biryani Combo Box", cost: 890, user: "chalo_priya3" }
+                  ].map((item, idx) => {
+                    const commission = (item.cost * 0.12).toFixed(2);
+                    return (
+                      <div key={idx} className="px-4 py-3.5 flex items-center justify-between hover:bg-slate-800/40 transition text-xs text-slate-300">
+                        <div className="flex items-start space-x-3">
+                          <span className="text-base shrink-0 mt-0.5">👑</span>
+                          <div>
+                            <div className="font-extrabold text-white">
+                              {item.title}
+                            </div>
+                            <div className="text-[10px] text-slate-450 font-mono mt-0.5">
+                              User Ref: <span className="text-slate-300">@{item.user}</span> | UTM: CHALO_PARTNER_INFLUENCE
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs font-black text-amber-400">
+                            +₹{commission}
+                          </div>
+                          <div className="text-[8px] font-mono text-slate-500 mt-0.5">
+                            12% of ₹{item.cost} Booking
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Dynamic Affiliate Campaign Link Generator */}
+              <div className="bg-slate-850 p-5 rounded-2xl border border-slate-800 space-y-4">
+                <div>
+                  <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">UTM Custom Partner Link Builder</h4>
+                  <p className="text-[10.5px] text-slate-400">Generate trackable affiliate links for influencers, social pages, or email newsletters.</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block font-mono">UTM Campaign Identifier</label>
+                    <input 
+                      type="text" 
+                      id="utm_campaign_id"
+                      defaultValue="INSTA_INFLUENCE_KUNAL"
+                      className="w-full bg-slate-900 border border-slate-750 p-3 rounded-xl text-xs font-bold text-slate-100 focus:ring-1 focus:ring-amber-400 outline-none" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block font-mono">Custom Redirect Page</label>
+                    <select 
+                      id="utm_redirect_tab"
+                      className="w-full bg-slate-900 border border-slate-750 p-3 rounded-xl text-xs font-bold text-slate-100 focus:ring-1 focus:ring-amber-400 outline-none"
+                    >
+                      <option value="home">Home Page (All Super Services)</option>
+                      <option value="rides">Rides Aggregator</option>
+                      <option value="stays">Book Stays Comparison</option>
+                      <option value="food">Food Ordering Panel</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const campId = (document.getElementById('utm_campaign_id') as HTMLInputElement)?.value || 'CAMPAIGN';
+                      const redir = (document.getElementById('utm_redirect_tab') as HTMLSelectElement)?.value || 'home';
+                      const copyText = `https://chalo.one/?utm_source=affiliate&utm_medium=founder&utm_campaign=${campId}&target=${redir}`;
+                      navigator.clipboard.writeText(copyText);
+                      alert(`📋 Affiliate UTM Campaign Link Generated & Copied to Clipboard:\n\n${copyText}`);
+                    }}
+                    className="w-full py-3 bg-amber-400 hover:bg-amber-500 text-slate-950 text-[10.5px] font-black uppercase rounded-xl transition shadow-md cursor-pointer"
+                  >
+                    Generate & Copy Affiliate Campaign Link 📋
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+        </div>
+      )}
+
+      {/* 🔗 PLATFORM AGGREGATOR SECURE OAUTH VERIFICATION INTERACTIVE MODAL */}
+      {linkingItem && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl border border-gray-150 p-5 w-full max-w-sm space-y-4 shadow-xl text-slate-800 animate-fade-in">
+            <div className="flex justify-between items-center pb-2 border-b border-gray-100">
+              <div className="flex items-center space-x-2">
+                <span className={`w-6 h-6 flex items-center justify-center rounded-lg text-xs font-black shrink-0 ${linkingItem.color}`}>
+                  {linkingItem.logo}
+                </span>
+                <h3 className="font-display font-black text-gray-950 text-xs uppercase tracking-tight">
+                  {isReLoginCheck ? 'Verify Session Key' : 'Secure Integration Sync'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setLinkingItem(null);
+                  setLinkEmail('');
+                  setLinkPassword('');
+                  setIsVerifyingLink(false);
+                  setIsLinkSuccess(false);
+                }}
+                className="p-1 text-gray-400 hover:bg-gray-50 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {isVerifyingLink ? (
+              <div className="py-8 text-center space-y-3.5">
+                <div className="relative w-12 h-12 mx-auto">
+                  <div className="absolute inset-0 border-4 border-indigo-100 rounded-full"></div>
+                  <div className="absolute inset-0 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                  <KeyRound className="w-5 h-5 text-indigo-600 absolute inset-0 m-auto" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-black text-gray-950 uppercase tracking-tight">Authenticating credentials...</p>
+                  <p className="text-[10px] text-gray-400 font-mono leading-relaxed">
+                    Connecting to carrier API secure gateway token authorization pools...
+                  </p>
+                </div>
+              </div>
+            ) : isLinkSuccess ? (
+              <div className="py-8 text-center space-y-3.5">
+                <div className="w-12 h-12 bg-emerald-50 border border-emerald-100 rounded-full flex items-center justify-center mx-auto text-emerald-600">
+                  <CheckCircle2 className="w-6 h-6 animate-pulse" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-black text-emerald-800 uppercase tracking-tight">Connection Verified!</p>
+                  <p className="text-[10px] text-gray-400 font-medium">Redirecting credentials secure token back to Chalo Super App...</p>
+                </div>
+              </div>
+            ) : (
+              <form 
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!linkEmail.trim() || !linkPassword.trim()) {
+                    alert('Please provide your active login credentials.');
+                    return;
+                  }
+                  setIsVerifyingLink(true);
+                  // Simulate Carrier verification API check
+                  await new Promise(r => setTimeout(r, 1200));
+                  setIsVerifyingLink(false);
+                  setIsLinkSuccess(true);
+                  await new Promise(r => setTimeout(r, 800));
+                  
+                  // Success link connection
+                  setConnectedAccounts({
+                    ...connectedAccounts,
+                    [linkingItem.key]: true
+                  });
+                  setLinkingItem(null);
+                  setLinkEmail('');
+                  setLinkPassword('');
+                  setIsLinkSuccess(false);
+                  setIsReLoginCheck(false);
+                  alert(`🎉 Connected successfully! Verified active sessions with "${linkingItem.label}" credentials.`);
+                }} 
+                className="space-y-3 text-xs"
+              >
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-[10.5px] text-slate-500 leading-normal font-medium animate-pulse">
+                  {isReLoginCheck ? (
+                    <span>User security choice triggers credential check to verify password has not changed. Provide your registered <b>{linkingItem.label}</b> details below.</span>
+                  ) : (
+                    <span>Enter your registered <b>{linkingItem.label}</b> account details to authorize Super comparison fetching with Chalo.</span>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-gray-400 uppercase tracking-wider block font-mono">Platform Registered Email / Phone</label>
+                  <input
+                    type="text"
+                    required
+                    value={linkEmail}
+                    onChange={(e) => setLinkEmail(e.target.value)}
+                    placeholder="e.g. kunal_user@vpa.com"
+                    className="w-full p-2.5 rounded-xl bg-slate-50 border border-gray-200 outline-none font-bold focus:bg-white focus:ring-1 focus:ring-indigo-400 text-slate-800"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black text-gray-400 uppercase tracking-wider block font-mono">Platform Password / Access Token</label>
+                  <div className="relative">
+                    <input
+                      type={showLinkPassword ? 'text' : 'password'}
+                      required
+                      value={linkPassword}
+                      onChange={(e) => setLinkPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full pl-3 pr-9 py-2.5 rounded-xl bg-slate-50 border border-gray-200 outline-none font-semibold focus:bg-white focus:ring-1 focus:ring-indigo-400 font-mono text-xs text-slate-800"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowLinkPassword(!showLinkPassword)}
+                      className="absolute right-3 top-3 text-gray-400 hover:text-gray-700 cursor-pointer"
+                    >
+                      {showLinkPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 bg-slate-900 hover:bg-black text-white font-black text-[10.5px] rounded-xl cursor-pointer transition uppercase tracking-wider"
+                  >
+                    Authorize Session 🔐
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLinkingItem(null);
+                      setLinkEmail('');
+                      setLinkPassword('');
+                      setIsReLoginCheck(false);
+                    }}
+                    className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-slate-655 font-bold text-[10.5px] rounded-xl cursor-pointer transition uppercase"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
         </div>
       )}
 
