@@ -208,7 +208,7 @@ export default function BillsModule({
     if (!payingBill) return;
 
     if (payMethod === 'wallet' && wallet.balance < payingBill.amountDue) {
-      alert('Insufficient Chalo Wallet balance! Please add funds or select another payment option.');
+      alert('Insufficient Chalo One Wallet balance! Please add funds or select another payment option.');
       return;
     }
 
@@ -271,7 +271,7 @@ export default function BillsModule({
       <div className="bg-white p-5 rounded-3xl border border-gray-150 shadow-xs">
         <div className="flex items-center justify-between pb-2 border-b border-gray-100">
           <div>
-            <span className="text-[9.5px] font-mono text-indigo-600 uppercase tracking-widest font-black block">⚡ Chalo Pay Bills</span>
+            <span className="text-[9.5px] font-mono text-indigo-600 uppercase tracking-widest font-black block">⚡ Chalo One Pay Bills</span>
             <h2 className="font-display font-black text-gray-950 text-base uppercase mt-0.5">Utility & Recharge Center</h2>
             <p className="text-[10.5px] text-gray-400 mt-0.5 font-medium leading-relaxed">Consolidate bills, link carriers, and settle instantly with automated reminders.</p>
           </div>
@@ -710,7 +710,7 @@ export default function BillsModule({
                   <div className="flex items-center space-x-2">
                     <Wallet className="w-4 h-4 text-emerald-600" />
                     <div>
-                      <p className="text-[10.5px] font-extrabold uppercase leading-none">Chalo Wallet Balance</p>
+                      <p className="text-[10.5px] font-extrabold uppercase leading-none">Chalo One Wallet Balance</p>
                       <p className="text-[9px] text-slate-400 mt-0.5">Available: ₹{wallet.balance.toFixed(2)}</p>
                     </div>
                   </div>

@@ -9,6 +9,19 @@ export interface UserProfile {
   referralCode: string;
   referredBy?: string;
   avatarUrl?: string;
+  role?: 'super_admin' | 'affiliate_partner' | 'user';
+  affiliateDetails?: {
+    companyName: string;
+    domain: string;
+    clicks: number;
+    conversions: number;
+    revenue: number;
+    commissionRate: number;
+    apiConfigured?: boolean;
+    webhookUrl?: string;
+    apiToken?: string;
+    isActivated?: boolean;
+  };
 }
 
 export interface Address {
@@ -195,7 +208,7 @@ export interface UnifiedCart {
 export interface SupportTicket {
   id: string;
   subject: string;
-  category: 'Rides' | 'Food' | 'Mart' | 'Stays' | 'Payments' | 'Wallet';
+  category: string;
   description: string;
   status: 'Open' | 'In Progress' | 'Resolved';
   createdAt: any;

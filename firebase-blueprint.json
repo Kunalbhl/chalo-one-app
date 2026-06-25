@@ -1,0 +1,86 @@
+{
+  "entities": {
+    "Affiliate": {
+      "title": "Affiliate Partner Profile",
+      "description": "Details of an onboarded affiliate partner platform or influencer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "companyName": { "type": "string" },
+        "commissionRate": { "type": "number" },
+        "clicks": { "type": "number" },
+        "conversions": { "type": "number" },
+        "revenue": { "type": "number" },
+        "status": { "type": "string" },
+        "apiConfigured": { "type": "boolean" },
+        "webhookUrl": { "type": "string" },
+        "apiToken": { "type": "string" },
+        "domain": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "status"]
+    },
+    "ClickLog": {
+      "title": "Affiliate Click Event Log",
+      "description": "Live, original record of high-fidelity redirect events from partner sites",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "affiliateId": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "sourceUrl": { "type": "string" },
+        "campaignName": { "type": "string" },
+        "ipAddress": { "type": "string" }
+      },
+      "required": ["id", "affiliateId", "timestamp"]
+    },
+    "PayoutRecord": {
+      "title": "Commission Payout History",
+      "description": "An audited payout clearing entry for affiliate partners",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "affiliateId": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string" },
+        "clearedAt": { "type": "string" },
+        "bankReference": { "type": "string" }
+      },
+      "required": ["id", "affiliateId", "amount", "status"]
+    },
+    "SystemConfig": {
+      "title": "Super Admin Global Config",
+      "description": "System-wide parameters managed by Super Admin Kunal",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "defaultCommissionRate": { "type": "number" },
+        "webhookApiUrl": { "type": "string" },
+        "smtpApiToken": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id"]
+    }
+  },
+  "firestore": {
+    "/affiliates/{affiliateId}": {
+      "schema": "Affiliate",
+      "description": "Registered and authorized affiliate profiles"
+    },
+    "/clicks_log/{clickId}": {
+      "schema": "ClickLog",
+      "description": "Sovereign platform audit log for referral routing"
+    },
+    "/payouts/{payoutId}": {
+      "schema": "PayoutRecord",
+      "description": "Cleared commission and billing invoices"
+    },
+    "/system_config/{configId}": {
+      "schema": "SystemConfig",
+      "description": "Global developer environment overrides"
+    }
+  }
+}

@@ -109,7 +109,7 @@ export default function RidesModule({
       amount: ride.price,
       status: 'active',
       statusLabel: 'Ongoing',
-      paymentMethod: 'Chalo Wallet Auto-Debit'
+      paymentMethod: 'Chalo One Wallet Auto-Debit'
     });
   };
 

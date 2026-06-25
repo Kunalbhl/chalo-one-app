@@ -239,7 +239,7 @@ export default function BiometricShield({
               authMethod: authMode,
               status: 'failed',
               selfieUrl: capturedSelfie,
-              details: `Biometric mismatch reported via Chalo Shield lock panel (${authMode.toUpperCase()})`
+              details: `Biometric mismatch reported via Chalo One Shield lock panel (${authMode.toUpperCase()})`
             });
           }
         } else {
@@ -376,7 +376,7 @@ export default function BiometricShield({
         <div className="w-full flex items-center justify-between mb-6">
           <div className="flex items-center space-x-1.5 bg-slate-800/80 px-3 py-1 rounded-full border border-slate-750 text-[10px] text-amber-400 font-mono font-bold tracking-wider uppercase">
             <Smartphone className="w-3.5 h-3.5" />
-            <span>Chalo Shield V2.4</span>
+            <span>Chalo One Shield V2.4</span>
           </div>
 
           <div className="flex space-x-1">

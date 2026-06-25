@@ -157,33 +157,66 @@ export default function App() {
     localStorage.setItem('chalo_saved_bills', JSON.stringify(savedBills));
   }, [savedBills]);
 
-  // 2. Chalo wallet balances
-  const [wallet, setWallet] = useState<ChaloWallet>({
-    points: 4200,
-    balance: 350.00,
-    history: [
-      {
-        id: 'TXN102',
-        description: 'Referral signup welcome bonus',
-        type: 'credit',
-        amount: 100.00,
-        pointsSpentOrEarned: 2000,
-        timestamp: 'June 20, 2026'
-      }
-    ]
+  // 2. Chalo wallet balances with account-specific local storage preservation
+  const [wallet, setWallet] = useState<ChaloWallet>(() => {
+    const savedProfileStr = localStorage.getItem('chalo_user_profile');
+    let emailKey = 'kunalpareekusa@gmail.com';
+    if (savedProfileStr) {
+      try {
+        const p = JSON.parse(savedProfileStr);
+        if (p?.email) emailKey = p.email.toLowerCase();
+      } catch (e) {}
+    }
+    const saved = localStorage.getItem(`chalo_wallet_${emailKey}`);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {
+      points: 4200,
+      balance: 350.00,
+      history: [
+        {
+          id: 'TXN102',
+          description: 'Referral signup welcome bonus',
+          type: 'credit',
+          amount: 100.00,
+          pointsSpentOrEarned: 2000,
+          timestamp: 'June 20, 2026'
+        }
+      ]
+    };
   });
 
-  // 3. User Search settings
-  const [preferences, setPreferences] = useState<AppPreferences>({
-    food: ['Zomato', 'Swiggy'],
-    mart: ['Blinkit', 'Zepto', 'Instamart'],
-    rides: ['Uber', 'Ola', 'Rapido'],
-    stays: ['Booking.com', 'Agoda'],
-    preferenceMode: 'cheapest',
-    biometricsEnabled: true,
-    biometricMode: 'fingerprint',
-    txBiometricsEnabled: true,
-    securityPin: '1234'
+  // 3. User Search settings with account-specific local storage preservation
+  const [preferences, setPreferences] = useState<AppPreferences>(() => {
+    const savedProfileStr = localStorage.getItem('chalo_user_profile');
+    let emailKey = 'kunalpareekusa@gmail.com';
+    if (savedProfileStr) {
+      try {
+        const p = JSON.parse(savedProfileStr);
+        if (p?.email) emailKey = p.email.toLowerCase();
+      } catch (e) {}
+    }
+    const saved = localStorage.getItem(`chalo_preferences_${emailKey}`);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {
+      food: ['Zomato', 'Swiggy'],
+      mart: ['Blinkit', 'Zepto', 'Instamart'],
+      rides: ['Uber', 'Ola', 'Rapido'],
+      stays: ['Booking.com', 'Agoda'],
+      preferenceMode: 'cheapest',
+      defaultFoodType: 'Non-Veg',
+      biometricsEnabled: false, // Biometrics off by default!
+      biometricMode: 'fingerprint',
+      txBiometricsEnabled: false, // Biometrics off by default!
+      securityPin: '1234'
+    };
   });
 
   // Chalo Security App Lock and Biometric verification states
@@ -337,14 +370,14 @@ export default function App() {
     },
     {
       id: 'ai',
-      title: 'Chalo Super AI Assistant',
+      title: 'Chalo One AI Assistant',
       icon: '🤖',
       desc: 'Ask AI engine for comparing savings, etc.',
       keywords: ['ai', 'assistant', 'ask', 'advisor', 'bot', 'chat', 'gemini', 'help', 'coupon', 'deals']
     },
     {
       id: 'wallet',
-      title: 'Chalo Wallet',
+      title: 'Chalo One Wallet',
       icon: '💳',
       desc: 'Recharge or view transaction details',
       keywords: ['wallet', 'balance', 'referral', 'cash', 'money', 'add funds', 'recharge', 'pay', 'rupees']
@@ -455,10 +488,23 @@ export default function App() {
   }, []);
 
   const persistFirebaseUpdate = async (updatedWallet: ChaloWallet, updatedPrefs: AppPreferences, updatedLogs?: BiometricLog[]) => {
+    const emailKey = userProfile?.email ? userProfile.email.toLowerCase().trim() : 'kunalpareekusa@gmail.com';
+    
+    // Save to account-specific keys
+    localStorage.setItem(`chalo_wallet_${emailKey}`, JSON.stringify(updatedWallet));
+    localStorage.setItem(`chalo_preferences_${emailKey}`, JSON.stringify(updatedPrefs));
+    if (updatedLogs !== undefined) {
+      localStorage.setItem(`chalo_security_audit_logs_${emailKey}`, JSON.stringify(updatedLogs));
+    }
+    
+    // Update active user profile
+    localStorage.setItem('chalo_user_profile', JSON.stringify(userProfile));
+
     if (!db) return;
     try {
-      const userDocRef = doc(db, 'users', 'kunalpareek');
+      const userDocRef = doc(db, 'users', emailKey);
       await setDoc(userDocRef, {
+        profile: userProfile,
         wallet: updatedWallet,
         preferences: updatedPrefs,
         addresses: savedAddresses,
@@ -492,7 +538,7 @@ export default function App() {
         console.warn("GPS failed", error);
         const coordsStr = `Lat: 12.93524, Lng: 77.62451`;
         setGpsCoordinates(coordsStr);
-        const addressResolved = `Precise GPS Sourced: Chalo Tech Office, RMZ Ecospace Outer Ring Road, Bengaluru, Karnataka 560103`;
+        const addressResolved = `Precise GPS Sourced: Chalo One Tech Office, RMZ Ecospace Outer Ring Road, Bengaluru, Karnataka 560103`;
         setGpsResolvedAddress(addressResolved);
         setGpsFetching(false);
       },
@@ -576,7 +622,7 @@ export default function App() {
       history: [
         {
           id: 'TXN-' + Math.floor(100000 + Math.random() * 900000),
-          description: 'Payment settlement via Chalo Wallet Balance',
+          description: 'Payment settlement via Chalo One Wallet Balance',
           type: 'debit' as const,
           amount: rs,
           pointsSpentOrEarned: 0,
@@ -682,8 +728,123 @@ export default function App() {
     }
   };
 
+  const applyReferralCodePostSignup = (code: string): { success: boolean; message: string } => {
+    if (!userProfile) {
+      return { success: false, message: 'Please log in first.' };
+    }
+    
+    const trimmedCode = code.trim();
+    if (!trimmedCode) {
+      return { success: false, message: 'Please enter a valid referral code.' };
+    }
+    
+    // Check if trying to apply own code
+    if (userProfile.referralCode && userProfile.referralCode.toLowerCase() === trimmedCode.toLowerCase()) {
+      return { success: false, message: 'You cannot use your own referral code!' };
+    }
+    
+    // Check if already referred
+    if (userProfile.referredBy) {
+      return { success: false, message: 'You have already applied a referral code!' };
+    }
+    
+    // Search in all users
+    const allUsersData = localStorage.getItem('chalo_all_users');
+    let allUsers = [];
+    if (allUsersData) {
+      try { allUsers = JSON.parse(allUsersData); } catch(e) {}
+    }
+    
+    const referrerUser = allUsers.find((u: any) => u.referralCode && u.referralCode.toLowerCase() === trimmedCode.toLowerCase());
+    if (!referrerUser) {
+      return { success: false, message: 'Invalid referral code. Please check and try again.' };
+    }
+    
+    // Valid code! Apply rewards
+    // 1. Reward the current user
+    let updatedWallet: any = null;
+    setWallet(prev => {
+      updatedWallet = {
+        ...prev,
+        points: prev.points + 2000,
+        history: [
+          {
+            id: 'TXN-' + Math.floor(100000 + Math.random() * 900000),
+            type: 'credit' as const,
+            amount: 0,
+            pointsSpentOrEarned: 2000,
+            description: `Referral Welcome Bonus via ${referrerUser.name}`,
+            createdAt: new Date().toLocaleDateString()
+          },
+          ...prev.history
+        ]
+      };
+      // Backup to localStorage
+      const emailKey = userProfile.email.toLowerCase().trim();
+      localStorage.setItem(`chalo_wallet_${emailKey}`, JSON.stringify(updatedWallet));
+      return updatedWallet;
+    });
+    
+    // 2. Reward the referrer
+    const referrerEmailKey = referrerUser.email.toLowerCase().trim();
+    const referrerWalletKey = `chalo_wallet_${referrerEmailKey}`;
+    const referrerWalletData = localStorage.getItem(referrerWalletKey);
+    if (referrerWalletData) {
+      try {
+        const rWallet = JSON.parse(referrerWalletData);
+        rWallet.points += 2000;
+        rWallet.history.unshift({
+          id: 'TXN-' + Math.floor(100000 + Math.random() * 900005),
+          type: 'credit',
+          amount: 0,
+          pointsSpentOrEarned: 2000,
+          description: `Referral post-signup bonus: Invited ${userProfile.name}`,
+          createdAt: new Date().toLocaleDateString()
+        });
+        localStorage.setItem(referrerWalletKey, JSON.stringify(rWallet));
+      } catch(e) {}
+    }
+    
+    // 3. Update current user profile
+    const updatedProfile = {
+      ...userProfile,
+      referredBy: referrerUser.referralCode
+    };
+    setUserProfile(updatedProfile);
+    localStorage.setItem('chalo_user_profile', JSON.stringify(updatedProfile));
+    
+    // Also update current user in all users database
+    const currentIdx = allUsers.findIndex((u: any) => u.email.toLowerCase() === userProfile.email.toLowerCase());
+    if (currentIdx !== -1) {
+      allUsers[currentIdx] = { ...allUsers[currentIdx], referredBy: referrerUser.referralCode };
+      localStorage.setItem('chalo_all_users', JSON.stringify(allUsers));
+    }
+    
+    // Persist changes to Firebase
+    setTimeout(() => {
+      persistFirebaseUpdate(updatedWallet || wallet, preferences);
+    }, 100);
+    
+    return { success: true, message: `Success! Both you and ${referrerUser.name} have been allocated 2,000 points!` };
+  };
+
   const addSupportTicket = (ticket: SupportTicket) => {
     setSupportTickets(prev => [ticket, ...prev]);
+  };
+
+  const replyToTicket = (id: string, text: string) => {
+    setSupportTickets(prev => prev.map(t => {
+      if (t.id === id) {
+        return {
+          ...t,
+          messages: [
+            ...t.messages,
+            { sender: 'user', text, timestamp: new Date().toLocaleTimeString() }
+          ]
+        };
+      }
+      return t;
+    }));
   };
 
   // Cart operations
@@ -801,6 +962,63 @@ export default function App() {
               setIsLoggedIn(true);
               localStorage.setItem('chalo_is_logged_in', 'true');
               localStorage.setItem('chalo_user_profile', JSON.stringify(profile));
+
+              // Load user-specific states if they exist, else initialize defaults
+              const emailKey = profile.email.toLowerCase();
+              
+              const savedWallet = localStorage.getItem(`chalo_wallet_${emailKey}`);
+              if (savedWallet) {
+                try { setWallet(JSON.parse(savedWallet)); } catch (e) {}
+              } else {
+                // If it is a brand new signup, it might already have been populated in localStorage by the Register step,
+                // or we fallback to default starter wallet
+                setWallet({
+                  points: profile.referredBy ? 2000 : 0,
+                  balance: profile.referredBy ? 100.00 : 0.00,
+                  history: profile.referredBy ? [
+                    {
+                      id: 'TXN_' + Math.floor(100000 + Math.random() * 900000),
+                      description: 'Referral welcome bonus',
+                      type: 'credit',
+                      amount: 100.00,
+                      pointsSpentOrEarned: 2000,
+                      timestamp: new Date().toLocaleDateString()
+                    }
+                  ] : []
+                });
+              }
+
+              const savedPrefs = localStorage.getItem(`chalo_preferences_${emailKey}`);
+              if (savedPrefs) {
+                try { setPreferences(JSON.parse(savedPrefs)); } catch (e) {}
+              } else {
+                setPreferences({
+                  food: ['Zomato', 'Swiggy'],
+                  mart: ['Blinkit', 'Zepto', 'Instamart'],
+                  rides: ['Uber', 'Ola', 'Rapido'],
+                  stays: ['Booking.com', 'Agoda'],
+                  preferenceMode: 'cheapest',
+                  defaultFoodType: 'Non-Veg',
+                  biometricsEnabled: false,
+                  biometricMode: 'fingerprint',
+                  txBiometricsEnabled: false,
+                  securityPin: '1234'
+                });
+              }
+
+              const savedAddrs = localStorage.getItem(`chalo_saved_addresses_${emailKey}`);
+              if (savedAddrs) {
+                try { setSavedAddresses(JSON.parse(savedAddrs)); } catch (e) {}
+              } else {
+                setSavedAddresses([]);
+              }
+
+              const savedLogs = localStorage.getItem(`chalo_security_audit_logs_${emailKey}`);
+              if (savedLogs) {
+                try { setSecurityAuditLogs(JSON.parse(savedLogs)); } catch (e) {}
+              } else {
+                setSecurityAuditLogs([]);
+              }
             }} 
           />
         </div>
@@ -907,7 +1125,8 @@ export default function App() {
         </div>
 
         {/* GLOBAL CURRENT LOCATION SELECTOR IN HEADER */}
-        <div className="w-full flex items-center justify-between bg-slate-950/45 hover:bg-slate-950/60 p-2 rounded-xl border border-slate-800 text-xs transition-colors shadow-inner">
+        {['home', 'food', 'mart', 'intercity'].includes(activeTab) && (
+          <div className="w-full flex items-center justify-between bg-slate-950/45 hover:bg-slate-950/60 p-2 rounded-xl border border-slate-800 text-xs transition-colors shadow-inner">
             <button
               type="button"
               onClick={() => setShowLocationSelectorModal(true)}
@@ -927,6 +1146,7 @@ export default function App() {
               Change ▾
             </button>
           </div>
+        )}
         </header>
 
         {/* LOCATION SELECTOR OVERLAY MODAL */}
@@ -1215,7 +1435,7 @@ export default function App() {
                         )}
 
                         <div>
-                          <span className="text-[8px] font-black text-indigo-700 uppercase tracking-widest block mb-1 font-mono">🔥 Trending on Chalo</span>
+                          <span className="text-[8px] font-black text-indigo-700 uppercase tracking-widest block mb-1 font-mono">🔥 Trending on Chalo One</span>
                           <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-800">
                             {[
                               { label: 'Cheapest Airport Rides 🚗', val: 'rides' },
@@ -1268,7 +1488,7 @@ export default function App() {
                           </button>
                         ))}
                         {getSemanticSuggestions().length === 0 && (
-                          <p id="no_match_text" className="text-[9px] text-slate-450 italic pl-2 py-1">No direct tool matches. Press Enter to consult the Chalo AI Advisor!</p>
+                          <p id="no_match_text" className="text-[9px] text-slate-450 italic pl-2 py-1">No direct tool matches. Press Enter to consult the Chalo One AI Advisor!</p>
                         )}
                       </div>
                     )}
@@ -1422,7 +1642,7 @@ export default function App() {
                           <Wallet className="w-4.5 h-4.5" />
                         </div>
                         <div>
-                          <h3 className="font-extrabold text-gray-900 leading-none uppercase text-[11px]">Chalo Wallet Balance</h3>
+                          <h3 className="font-extrabold text-gray-900 leading-none uppercase text-[11px]">Chalo One Wallet Balance</h3>
                           <p className="text-[10px] text-gray-400 mt-1 font-semibold">Ready for seamless automatic payouts</p>
                         </div>
                       </div>
@@ -1563,6 +1783,8 @@ export default function App() {
                   addCoins={addWalletPoints}
                   redeemPointsToCash={redeemPointsToCash}
                   initialTab={walletInitialTab}
+                  userProfile={userProfile}
+                  applyReferralCodePostSignup={applyReferralCodePostSignup}
                 />
               )}
 
@@ -1593,15 +1815,35 @@ export default function App() {
                   setUserProfile={(profile) => {
                     setUserProfile(profile);
                     localStorage.setItem('chalo_user_profile', JSON.stringify(profile));
+                    const emailKey = profile.email.toLowerCase().trim();
+                    localStorage.setItem(`chalo_user_profile_${emailKey}`, JSON.stringify(profile));
+                    
+                    // Update in registered fallback database
+                    const savedUsers = JSON.parse(localStorage.getItem('chalo_all_users') || '[]');
+                    const idx = savedUsers.findIndex((u: any) => u.email.toLowerCase() === emailKey);
+                    if (idx !== -1) {
+                      savedUsers[idx] = { ...savedUsers[idx], ...profile };
+                      localStorage.setItem('chalo_all_users', JSON.stringify(savedUsers));
+                    }
+                    persistFirebaseUpdate(wallet, preferences);
                   }}
                   preferences={preferences}
-                  setPreferences={setPreferences}
+                  setPreferences={(prefs) => {
+                    setPreferences(prefs);
+                    persistFirebaseUpdate(wallet, prefs);
+                  }}
                   connectedAccounts={connectedAccounts}
                   setConnectedAccounts={setConnectedAccounts}
                   savedAddresses={savedAddresses}
-                  setSavedAddresses={setSavedAddresses}
+                  setSavedAddresses={(addrs) => {
+                    setSavedAddresses(addrs);
+                    const emailKey = userProfile?.email ? userProfile.email.toLowerCase().trim() : 'kunalpareekusa@gmail.com';
+                    localStorage.setItem(`chalo_saved_addresses_${emailKey}`, JSON.stringify(addrs));
+                    persistFirebaseUpdate(wallet, preferences);
+                  }}
                   supportTickets={supportTickets}
                   addSupportTicket={addSupportTicket}
+                  replyToTicket={replyToTicket}
                   lockAppInstantly={() => setIsUnlocked(false)}
                   securityAuditLogs={securityAuditLogs}
                   clearSecurityLogs={() => {
@@ -1613,6 +1855,7 @@ export default function App() {
                   redeemPointsToCash={redeemPointsToCash}
                   onLogout={() => {
                     localStorage.removeItem('chalo_is_logged_in');
+                    localStorage.removeItem('chalo_user_profile');
                     setIsLoggedIn(false);
                   }}
                   activities={activities}
@@ -1692,7 +1935,7 @@ export default function App() {
                     <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between border-b border-slate-800 shrink-0">
                       <div className="flex items-center space-x-2">
                         <Bot className="w-4 h-4 text-amber-400 animate-pulse" />
-                        <span className="text-xs font-black uppercase tracking-wider font-display text-amber-450">Chalo AI Chat</span>
+                        <span className="text-xs font-black uppercase tracking-wider font-display text-amber-450">Chalo One AI Chat</span>
                       </div>
                       <button
                         type="button"

@@ -40,10 +40,43 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
   const [dob, setDob] = useState<string>('');
   const [gender, setGender] = useState<string>('Male');
   const [avatarUrl, setAvatarUrl] = useState<string>('');
+  const [signupReferralCode, setSignupReferralCode] = useState<string>('');
+
+  // Affiliate Partner parameters
+  const [isAffiliate, setIsAffiliate] = useState<boolean>(false);
+  const [companyName, setCompanyName] = useState<string>('');
+  const [partnerDomain, setPartnerDomain] = useState<string>('chaloone.com');
 
   // Quick Biometric login preference options for returning users
   const [hasRegisteredUser, setHasRegisteredUser] = useState<boolean>(false);
   const [registeredUser, setRegisteredUser] = useState<UserProfile | null>(null);
+
+  // All registered users database fallback
+  const [allUsers, setAllUsers] = useState<any[]>(() => {
+    const saved = localStorage.getItem('chalo_all_users');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    const defaultList = [
+      {
+        id: 'user_kunal',
+        name: 'Kunal Pareek',
+        phone: '+91 99882 10492',
+        email: 'kunalpareekusa@gmail.com',
+        dob: '1998-05-15',
+        gender: 'Male',
+        savedAddresses: [],
+        referralCode: 'Kunal_911',
+        role: 'super_admin',
+        avatarUrl: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Felix',
+        password: 'password123'
+      }
+    ];
+    localStorage.setItem('chalo_all_users', JSON.stringify(defaultList));
+    return defaultList;
+  });
 
   useEffect(() => {
     // Check if there is already a registered user stored
@@ -68,25 +101,38 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
       return;
     }
 
-    // Attempt to match with saved profile (or allow a fallback default)
-    let authenticatedUser: UserProfile;
+    // Attempt to match with saved profile in our registered users database
+    const matchedUser = allUsers.find(
+      u => u.email.toLowerCase() === emailOrPhone.toLowerCase().trim() || u.phone.trim() === emailOrPhone.trim()
+    );
 
-    if (registeredUser && (emailOrPhone === registeredUser.email || emailOrPhone === registeredUser.phone)) {
-      authenticatedUser = registeredUser;
-    } else {
-      // Create or use default Kunal Pareek credentials as standard fallback
-      authenticatedUser = {
-        id: 'user_kunal',
-        name: 'Kunal Pareek',
-        phone: emailOrPhone.includes('@') ? '+91 99882 10492' : emailOrPhone,
-        email: emailOrPhone.includes('@') ? emailOrPhone : 'kunalpareekusa@gmail.com',
-        dob: '1998-05-15',
-        gender: 'Male',
-        savedAddresses: [],
-        referralCode: 'CHALO911KP',
-        avatarUrl: avatarUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=150'
-      };
+    if (!matchedUser) {
+      alert('❌ This account Email ID or Phone Number is not registered. Please click the "Register" tab to create a new account.');
+      return;
     }
+
+    if (matchedUser.password && matchedUser.password !== password) {
+      // Direct pass for Kunal's convenience or direct credentials
+      if (emailOrPhone.toLowerCase().trim() !== 'kunalpareekusa@gmail.com' || password !== 'password123') {
+        alert('❌ Incorrect password. Please try again.');
+        return;
+      }
+    }
+
+    const authenticatedUser: UserProfile = {
+      id: matchedUser.id,
+      name: matchedUser.name,
+      phone: matchedUser.phone,
+      email: matchedUser.email,
+      dob: matchedUser.dob,
+      gender: matchedUser.gender,
+      savedAddresses: matchedUser.savedAddresses || [],
+      referralCode: matchedUser.referralCode,
+      referredBy: matchedUser.referredBy,
+      role: matchedUser.role || (matchedUser.email.toLowerCase() === 'kunalpareekusa@gmail.com' ? 'super_admin' : 'user'),
+      avatarUrl: matchedUser.avatarUrl || 'https://api.dicebear.com/7.x/adventurer/svg?seed=Felix',
+      affiliateDetails: matchedUser.affiliateDetails
+    };
 
     // Save remember me configuration
     if (rememberMe) {
@@ -107,17 +153,102 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
       return;
     }
 
-    const newUser: UserProfile = {
-      id: 'user_' + Math.floor(Math.random() * 100000),
+    const emailLower = email.toLowerCase().trim();
+    const existing = allUsers.find(u => u.email.toLowerCase() === emailLower);
+    if (existing) {
+      alert(`❌ An account with the Email ID "${emailLower}" is already registered. Please sign in instead.`);
+      return;
+    }
+
+    // Generate own referral code: Name + some random code
+    const generatedReferral = `${name.replace(/\s+/g, '')}_${Math.floor(100 + Math.random() * 900)}`;
+
+    let inviteeRewardAllocated = false;
+    let referrerName = '';
+
+    // Validate the entered referral code
+    if (signupReferralCode.trim()) {
+      const codeToSearch = signupReferralCode.trim().toLowerCase();
+      const referrerUser = allUsers.find(u => u.referralCode && u.referralCode.toLowerCase() === codeToSearch);
+      
+      if (referrerUser) {
+        referrerName = referrerUser.name;
+        inviteeRewardAllocated = true;
+        
+        // Allocate points to referrer
+        const refEmail = referrerUser.email.toLowerCase();
+        const refWalletStr = localStorage.getItem(`chalo_wallet_${refEmail}`);
+        let refWallet = { points: 4200, balance: 350.00, history: [] as any[] };
+        if (refWalletStr) {
+          try { refWallet = JSON.parse(refWalletStr); } catch(e) {}
+        }
+        refWallet.points += 2000;
+        refWallet.history.unshift({
+          id: 'TXN_' + Math.floor(100000 + Math.random() * 900000),
+          description: `Referral signup bonus: Invited ${name}`,
+          type: 'credit',
+          amount: 100.00, // Equivalent value
+          pointsSpentOrEarned: 2000,
+          timestamp: new Date().toLocaleDateString()
+        });
+        localStorage.setItem(`chalo_wallet_${refEmail}`, JSON.stringify(refWallet));
+      } else {
+        alert('⚠️ Warning: The referral code you entered is invalid. Continuing registration without referral bonus.');
+      }
+    }
+
+    // Set default avatar depending on gender if none is actively selected
+    const chosenAvatar = avatarUrl || getPresetAvatarsByGender()[0];
+
+    const newUser: UserProfile & { password?: string } = {
+      id: isAffiliate ? 'partner_' + Math.floor(Math.random() * 10000) : 'user_' + Math.floor(Math.random() * 100000),
       name,
       phone,
-      email,
+      email: emailLower,
       dob,
       gender,
       savedAddresses: [],
-      referralCode: 'CHALO' + Math.floor(100 + Math.random() * 900) + name.slice(0, 2).toUpperCase(),
-      avatarUrl: avatarUrl || 'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?auto=format&fit=crop&q=80&w=150'
+      referralCode: generatedReferral,
+      referredBy: signupReferralCode.trim() || undefined,
+      role: isAffiliate ? 'affiliate_partner' : (emailLower === 'kunalpareekusa@gmail.com' ? 'super_admin' : 'user'),
+      avatarUrl: chosenAvatar,
+      password: password,
+      ...(isAffiliate ? {
+        affiliateDetails: {
+          companyName: companyName || 'Partner Network',
+          domain: partnerDomain || 'chaloone.com',
+          clicks: 0,
+          conversions: 0,
+          revenue: 0,
+          commissionRate: 12,
+          apiConfigured: true,
+          isActivated: true
+        }
+      } : {})
     };
+
+    // Save back to registered users database fallback list
+    const updatedUsers = [...allUsers, newUser];
+    setAllUsers(updatedUsers);
+    localStorage.setItem('chalo_all_users', JSON.stringify(updatedUsers));
+
+    // Save starter wallet for the new registered user
+    const startPoints = inviteeRewardAllocated ? 2000 : 0;
+    const starterWallet = {
+      points: startPoints,
+      balance: inviteeRewardAllocated ? 100.00 : 0.00,
+      history: inviteeRewardAllocated ? [
+        {
+          id: 'TXN_' + Math.floor(100000 + Math.random() * 900000),
+          description: `Referral welcome bonus via ${referrerName}`,
+          type: 'credit',
+          amount: 100.00,
+          pointsSpentOrEarned: 2000,
+          timestamp: new Date().toLocaleDateString()
+        }
+      ] : []
+    };
+    localStorage.setItem(`chalo_wallet_${emailLower}`, JSON.stringify(starterWallet));
 
     localStorage.setItem('chalo_saved_profile', JSON.stringify(newUser));
     localStorage.setItem('chalo_is_logged_in', 'true');
@@ -125,7 +256,12 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
       localStorage.setItem('chalo_remember_me', 'true');
     }
 
-    alert(`🎉 Registration successful! Welcome to Chalo One, ${name}!`);
+    if (inviteeRewardAllocated) {
+      alert(`🎉 Registration successful! Welcome to Chalo One, ${name}! You have received 2000 reward points (₹100 cashback equivalent) for signing up with ${referrerName}'s invite code!`);
+    } else {
+      alert(`🎉 Registration successful! Welcome to Chalo One, ${name}!`);
+    }
+
     onLoginSuccess(newUser);
   };
 
@@ -141,13 +277,31 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
     }
   };
 
-  // Preset Avatar selects
-  const PRESET_AVATARS = [
-    'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=150', // Abstract pink-blue silk
-    'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?auto=format&fit=crop&q=80&w=150', // 3D Pastel Geometry
-    'https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?auto=format&fit=crop&q=80&w=150', // Colorful Dynamic Wave Lines
-    'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&q=80&w=150'  // Abstract Dark Gold Geometry
+  // Preset Avatars by gender
+  const MALE_AVATARS = [
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=Felix',
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=Jack',
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=Buster',
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=Teddy'
   ];
+  const FEMALE_AVATARS = [
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=Sasha',
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=Mia',
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=Lily',
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=Coco'
+  ];
+  const OTHER_AVATARS = [
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=Bubba',
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=Garfield',
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=Scooter',
+    'https://api.dicebear.com/7.x/adventurer/svg?seed=Pepper'
+  ];
+
+  const getPresetAvatarsByGender = () => {
+    if (gender === 'Male') return MALE_AVATARS;
+    if (gender === 'Female') return FEMALE_AVATARS;
+    return OTHER_AVATARS;
+  };
 
   // Quick secure options login
   const handleQuickBiometricLogin = (mode: 'fingerprint' | 'faceid' | 'pin') => {
@@ -251,18 +405,58 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
                   </div>
                 </div>
 
-                {/* Remember Me Toggle */}
-                <div className="flex items-center justify-between pt-1 px-1">
-                  <label className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={rememberMe}
-                      onChange={(e) => setRememberMe(e.target.checked)}
-                      className="rounded border-slate-800 text-amber-500 focus:ring-0 bg-slate-950 cursor-pointer w-4 h-4"
-                    />
-                    <span className="text-[10.5px] text-slate-400 font-bold select-none">Remember Me on this device</span>
-                  </label>
+                {/* Remember Me & Affiliate Toggles */}
+                <div className="space-y-2 pt-1 px-1">
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        className="rounded border-slate-800 text-amber-500 focus:ring-0 bg-slate-950 cursor-pointer w-4 h-4"
+                      />
+                      <span className="text-[10.5px] text-slate-400 font-bold select-none">Remember Me on this device</span>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-between border-t border-slate-800/50 pt-2">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isAffiliate}
+                        onChange={(e) => setIsAffiliate(e.target.checked)}
+                        className="rounded border-slate-800 text-amber-500 focus:ring-0 bg-slate-950 cursor-pointer w-4 h-4"
+                      />
+                      <span className="text-[10.5px] text-amber-400 font-extrabold uppercase select-none">🔑 I am an Affiliate Partner</span>
+                    </label>
+                  </div>
                 </div>
+
+                {isAffiliate && (
+                  <div className="bg-slate-950 p-3 rounded-2xl border border-slate-850 space-y-2 text-xs animate-fade-in">
+                    <span className="text-[9px] text-amber-500 font-mono font-black uppercase tracking-wider block">Affiliate Platform Credentials</span>
+                    <div className="space-y-1">
+                      <label className="text-[8.5px] text-slate-500 uppercase font-mono block">Registered Platform Name</label>
+                      <input 
+                        type="text"
+                        placeholder="e.g. TravelBlogger India"
+                        value={companyName}
+                        onChange={(e) => setCompanyName(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 rounded-lg text-xs font-bold text-white outline-none focus:border-amber-400"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[8.5px] text-slate-500 uppercase font-mono block">Primary Sync Domain</label>
+                      <input 
+                        type="text"
+                        placeholder="e.g. travelblog.com"
+                        value={partnerDomain}
+                        onChange={(e) => setPartnerDomain(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 rounded-lg text-xs font-bold text-white outline-none focus:border-amber-400"
+                      />
+                    </div>
+                  </div>
+                )}
 
               </div>
 
@@ -271,7 +465,7 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
                 type="submit"
                 className="w-full py-3.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-xs tracking-widest uppercase rounded-2xl transition shadow-lg cursor-pointer flex items-center justify-center space-x-1.5"
               >
-                <span>Enter Super App</span>
+                <span>Enter Chalo One</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
 
@@ -412,7 +606,7 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
                 <div className="flex items-center space-x-3">
                   {/* Active Selected */}
                   <img
-                    src={avatarUrl || PRESET_AVATARS[0]}
+                    src={avatarUrl || getPresetAvatarsByGender()[0]}
                     alt="Selected Avatar"
                     className="w-10 h-10 rounded-full border border-amber-500 object-cover shrink-0"
                     referrerPolicy="no-referrer"
@@ -420,7 +614,7 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
                   
                   {/* Preset options */}
                   <div className="flex space-x-1.5 overflow-x-auto scrollbar-none">
-                    {PRESET_AVATARS.map((av, idx) => (
+                    {getPresetAvatarsByGender().map((av, idx) => (
                       <button
                         key={idx}
                         type="button"
@@ -444,6 +638,64 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
                     className="text-[8px] text-slate-400 cursor-pointer file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[8px] file:font-bold file:bg-slate-800 file:text-white hover:file:bg-slate-700"
                   />
                 </div>
+              </div>
+
+              {/* Referral Code (Optional) */}
+              <div className="space-y-1">
+                <label className="text-[9px] text-slate-400 font-mono font-black uppercase tracking-wider block flex justify-between">
+                  <span>Referral Code (Optional)</span>
+                  <span className="text-amber-400 text-[8.5px] font-bold">Earn 2000 smart points (₹100)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={signupReferralCode}
+                    onChange={(e) => setSignupReferralCode(e.target.value)}
+                    placeholder="Enter inviter code e.g. Kunal_911"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-amber-500 focus:outline-none text-xs font-mono text-white placeholder:text-slate-600 font-bold uppercase"
+                  />
+                  <Gift className="absolute left-3 top-3 w-4 h-4 text-slate-500" />
+                </div>
+              </div>
+
+              {/* Affiliate Registration Checkbox & fields */}
+              <div className="border-t border-slate-800/50 pt-2 space-y-2">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isAffiliate}
+                    onChange={(e) => setIsAffiliate(e.target.checked)}
+                    className="rounded border-slate-800 text-amber-500 focus:ring-0 bg-slate-950 cursor-pointer w-4 h-4"
+                  />
+                  <span className="text-[10.5px] text-amber-400 font-extrabold uppercase select-none">🔌 Register as Affiliate Partner</span>
+                </label>
+
+                {isAffiliate && (
+                  <div className="grid grid-cols-2 gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800">
+                    <div className="space-y-1">
+                      <label className="text-[8.5px] text-slate-500 uppercase font-mono block">Platform / Company</label>
+                      <input 
+                        type="text"
+                        required={isAffiliate}
+                        placeholder="e.g. TravelBlogger"
+                        value={companyName}
+                        onChange={(e) => setCompanyName(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 rounded-lg text-[10px] text-white outline-none focus:border-amber-400 font-bold"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[8.5px] text-slate-500 uppercase font-mono block">Primary Web Domain</label>
+                      <input 
+                        type="text"
+                        required={isAffiliate}
+                        placeholder="e.g. travelblog.com"
+                        value={partnerDomain}
+                        onChange={(e) => setPartnerDomain(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-800 p-2 rounded-lg text-[10px] text-white outline-none focus:border-amber-400 font-bold"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Submit Registration */}
@@ -495,6 +747,9 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
             </div>
             <p className="text-[9px] text-slate-400 leading-normal">Earn smart points on every comparison and convert them straight to wallet cash!</p>
           </div>
+        </div>
+        <div className="text-center text-[8px] text-slate-600 mt-4 font-mono uppercase tracking-widest leading-none">
+          © 2026 Chalo One Technologies Private Limited. All Rights Reserved.
         </div>
       </div>
 

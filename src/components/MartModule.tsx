@@ -180,10 +180,10 @@ export default function MartModule({
           <span className="text-[9px] text-gray-400 font-bold uppercase pl-1 font-mono">Grocery Diet Choice (Def: {defaultFoodType || "Doesn't Matter"})</span>
           <div className="flex flex-wrap gap-1.5">
             {[
-              { id: 'All', label: "⚪ Doesn't Matter", class: 'bg-white border-gray-200 text-gray-700 active:bg-gray-200' },
-              { id: 'Veg', label: '🟢 Pure Veg', class: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
-              { id: 'Eggetarian', label: '🟡 Eggetarian', class: 'bg-amber-50 border-amber-200 text-amber-800' },
-              { id: 'Non-Veg', label: '🔴 Non-Veg', class: 'bg-rose-50 border-rose-200 text-rose-800' }
+              { id: 'Veg', label: '🟢 Pure Veg Only', class: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
+              { id: 'Eggetarian', label: '🟡 Eggetarian Only', class: 'bg-amber-50 border-amber-200 text-amber-800' },
+              { id: 'Non-Veg', label: '🔴 Non-Veg Only', class: 'bg-rose-50 border-rose-200 text-rose-800' },
+              { id: 'All', label: "🍽 Doesn't Matter", class: 'bg-white border-gray-200 text-gray-700 active:bg-gray-200' }
             ].map(diet => (
               <button
                 key={diet.id}

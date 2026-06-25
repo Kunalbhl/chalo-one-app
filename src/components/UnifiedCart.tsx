@@ -127,7 +127,7 @@ export default function UnifiedCart({
         platform: st.platform,
         merchant: st.merchant,
         title: `Settled: ${st.merchant}`,
-        subtitle: `Dispatched via Chalo split payment engine. Paid via ${paymentMethod.toUpperCase()} (Razorpay Sec)`,
+        subtitle: `Dispatched via Chalo One split payment engine. Paid via ${paymentMethod.toUpperCase()} (Razorpay Sec)`,
         date: "Today",
         time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
         amount: st.amount,
@@ -308,7 +308,7 @@ export default function UnifiedCart({
           <ShoppingBag className="w-6 h-6" />
         </div>
         <div>
-          <h2 className="text-xl font-display font-semibold tracking-tight text-gray-950">Chalo Unified Cart</h2>
+          <h2 className="text-xl font-display font-semibold tracking-tight text-gray-950">Chalo One Unified Cart</h2>
           <p className="text-xs text-gray-500">Checkout multiple food, stays, and instamart grocery brands in a single payment</p>
         </div>
       </div>
@@ -498,7 +498,7 @@ export default function UnifiedCart({
                 >
                   <span className="text-xs flex items-center">
                     <Coins className="w-3.5 h-3.5 mr-1" />
-                    Chalo Wallet
+                    Chalo One Wallet
                   </span>
                   <span className="text-[9px] text-amber-600 font-mono mt-1 font-extrabold">Balance: ₹{walletBalance}</span>
                 </button>
@@ -521,7 +521,7 @@ export default function UnifiedCart({
                     paymentMethod === 'bnpl' ? 'bg-indigo-50/70 border-indigo-500 text-indigo-950' : 'bg-white border-gray-150 text-gray-600'
                   }`}
                 >
-                  <span className="text-xs">Chalo Pay Later</span>
+                  <span className="text-xs">Chalo One Pay Later</span>
                   <span className="text-[9px] text-gray-400 font-mono mt-1 font-semibold">0% interest / 15-day cycle</span>
                 </button>
               </div>
@@ -549,7 +549,7 @@ export default function UnifiedCart({
 
               {paymentMethod === 'wallet' && walletBalance < finalPrice && (
                 <div className="bg-red-50 text-red-700 p-2 text-[10px] rounded-lg font-bold border border-red-200">
-                  ⚠️ Insufficient balance in Chalo wallet. Balance matches ₹{walletBalance}. Please select another payment method or refer friends to earn cashback.
+                  ⚠️ Insufficient balance in Chalo One wallet. Balance matches ₹{walletBalance}. Please select another payment method or refer friends to earn cashback.
                 </div>
               )}
 
@@ -568,7 +568,7 @@ export default function UnifiedCart({
           <div className="p-12 text-center bg-gray-50 rounded-2xl border border-gray-150">
             <ShoppingBag className="w-10 h-10 text-gray-300 mx-auto mb-2" />
             <h3 className="text-sm font-bold text-gray-600">Your basket is empty.</h3>
-            <p className="text-xs text-gray-400 mt-1">Navigate to Food, Mart, or Stays to compile comparative listings in Chalo!</p>
+            <p className="text-xs text-gray-400 mt-1">Navigate to Food, Mart, or Stays to compile comparative listings in Chalo One!</p>
           </div>
         )
       ) : (
@@ -639,7 +639,7 @@ export default function UnifiedCart({
               </div>
               <div className="text-right">
                 <p className="text-[9px] text-indigo-300">Merch ID</p>
-                <p className="text-[10.5px] font-black text-amber-300 leading-none">Chalo SuperApp</p>
+                <p className="text-[10.5px] font-black text-amber-300 leading-none">Chalo One SuperApp</p>
               </div>
             </div>
 

@@ -36,13 +36,13 @@ export default function WalletReferral({
   // Process referral friend signup simulation
   const simulateFriendSignUp = () => {
     addWalletPoints(2000, "Referral Bonus: Friend signed up via code!");
-    alert("🎉 Fantastic! You invited 'Rajiv Sen' and earned 2000 Chalo points (= ₹100 direct cashback value) successfully! Points credited instantly to your Chalo Wallet.");
+    alert("🎉 Fantastic! You invited 'Rajiv Sen' and earned 2000 Chalo One points (= ₹100 direct cashback value) successfully! Points credited instantly to your Chalo One Wallet.");
   };
 
   const handleRedeem = (e: React.FormEvent) => {
     e.preventDefault();
     if (wallet.points < redeemPointsAmount) {
-      alert("❌ Insufficient Chalo Points balance! Refer friends to earn more points (2000 pts per invite).");
+      alert("❌ Insufficient Chalo One Points balance! Refer friends to earn more points (2000 pts per invite).");
       return;
     }
     redeemPointsToCash(redeemPointsAmount);
@@ -51,12 +51,12 @@ export default function WalletReferral({
   return (
     <div id="wallet_referral_container" className="p-4 max-w-xl mx-auto space-y-4 font-sans text-gray-850">
       
-      {/* 1. Chalo Wallet visual credit card/stats */}
+      {/* 1. Chalo One Wallet visual credit card/stats */}
       <div className="bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 text-white rounded-3xl p-5 shadow-lg relative overflow-hidden space-y-3.5">
         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-3xl pointer-events-none"></div>
         <div className="flex justify-between items-start">
           <div className="space-y-1">
-            <span className="text-[10px] uppercase font-bold tracking-widest text-amber-100 opacity-90 block">CHALO EVERYDAY WALLET</span>
+            <span className="text-[10px] uppercase font-bold tracking-widest text-amber-100 opacity-90 block">CHALO ONE EVERYDAY WALLET</span>
             <span className="text-3xl font-extrabold font-mono text-white">₹{wallet.balance.toFixed(2)}</span>
           </div>
           <div className="p-3 bg-white/15 rounded-2xl">
@@ -66,7 +66,7 @@ export default function WalletReferral({
 
         <div className="flex justify-between border-t border-white/15 pt-3 text-xs">
           <div>
-            <span className="text-[9px] text-amber-100 uppercase tracking-wider block opacity-85">Chalo Reward Points</span>
+            <span className="text-[9px] text-amber-100 uppercase tracking-wider block opacity-85">Chalo One Reward Points</span>
             <span className="font-bold text-base font-mono">{wallet.points} Points</span>
           </div>
           <div className="text-right">
@@ -83,7 +83,7 @@ export default function WalletReferral({
           <h3 className="text-xs font-extrabold uppercase tracking-wider text-amber-800">Convert Points to Wallet Cash</h3>
         </div>
         <p className="text-[11px] text-gray-500 pb-1">
-          Formula: **20 Chalo Points = ₹1**. Convert 2000 points to receive a flat **₹100** cashback in your primary wallet immediately.
+          Formula: **20 Chalo One Points = ₹1**. Convert 2000 points to receive a flat **₹100** cashback in your primary wallet immediately.
         </p>
 
         <form onSubmit={handleRedeem} className="flex gap-2">
@@ -117,7 +117,7 @@ export default function WalletReferral({
               <h3 className="text-xs font-extrabold uppercase tracking-wider text-orange-850">Refer Friends, Get ₹100 Outright</h3>
             </div>
             <p className="text-[11px] text-orange-800 leading-relaxed font-medium">
-              Share your invite link! You get **2000 points (₹100)** the second your friend signs up on Chalo.
+              Share your invite link! You get **2000 points (₹100)** the second your friend signs up on Chalo One.
             </p>
           </div>
           
@@ -167,7 +167,7 @@ export default function WalletReferral({
           </div>
           <div>
             <span className="text-[10px] font-extrabold text-orange-900 font-mono tracking-tight block">YOUR ACCOUNT QR CODE</span>
-            <span className="text-[11px] text-gray-500 leading-none">Friends can scan your phone screen inside any Chalo app let-up to signup instantly.</span>
+            <span className="text-[11px] text-gray-500 leading-none">Friends can scan your phone screen inside any Chalo One app let-up to signup instantly.</span>
           </div>
         </div>
       </div>

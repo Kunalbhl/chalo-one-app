@@ -28,7 +28,7 @@ export default function SettingsPreferences({
     
     // Toast alert simulating auth linking safely
     const action = nextState[brand] ? "Connected" : "Disconnected";
-    alert(`🔐 Chalo Account Linker: ${brand.toUpperCase()} account has been successfully ${action}! Credentials synced and secured under standard OAuth rules.`);
+    alert(`🔐 Chalo One Account Linker: ${brand.toUpperCase()} account has been successfully ${action}! Credentials synced and secured under standard OAuth rules.`);
   };
 
   const handleSave = (mode: typeof prefMode) => {
@@ -92,7 +92,7 @@ export default function SettingsPreferences({
           <h3 className="text-xs font-extrabold uppercase tracking-widest text-slate-500">Connect Partner Accounts</h3>
         </div>
         <p className="text-[11px] text-gray-500 font-medium">
-          Once your account is linked via secure authorization APIs, Chalo can retrieve member loyalty profiles, passcodes, and apply corporate vouchers automatically!
+          Once your account is linked via secure authorization APIs, Chalo One can retrieve member loyalty profiles, passcodes, and apply corporate vouchers automatically!
         </p>
 
         <div className="grid grid-cols-2 gap-2.5 pt-1">
@@ -179,7 +179,7 @@ export default function SettingsPreferences({
         {/* Saved Success Note popup */}
         {successSaved && (
           <div className="p-2.5 bg-emerald-50 text-emerald-700 border border-emerald-150 rounded-xl text-center text-xs font-bold font-mono">
-            🎉 Preference Saved Successfully & Synced to Chalo Firestore!
+            🎉 Preference Saved Successfully & Synced to Chalo One Firestore!
           </div>
         )}
       </div>

@@ -1,21 +1,44 @@
 import React, { useState } from 'react';
-import { ChaloWallet, WalletTransaction, ReferralState } from '../types';
+import { ChaloWallet, WalletTransaction, ReferralState, UserProfile } from '../types';
 import { LEADERBOARD_WEEKLY, LEADERBOARD_MONTHLY, LEADERBOARD_ALLTIME } from '../data';
-import { Coins, Award, Users, Share2, QrCode, ArrowUpRight, HelpCircle, ArrowRightLeft, Gift, Zap } from 'lucide-react';
+import { Coins, Award, Users, Share2, QrCode, ArrowUpRight, HelpCircle, ArrowRightLeft, Gift, Zap, CheckCircle, AlertTriangle } from 'lucide-react';
 
 interface ReferralAndWalletProps {
   wallet: ChaloWallet;
   addCoins: (points: number) => void;
   redeemPointsToCash: (points: number) => void;
   initialTab?: 'wallet' | 'referral';
+  userProfile?: UserProfile | null;
+  applyReferralCodePostSignup?: (code: string) => { success: boolean; message: string };
 }
 
-export default function ReferralAndWallet({ wallet, addCoins, redeemPointsToCash, initialTab = 'wallet' }: ReferralAndWalletProps) {
+export default function ReferralAndWallet({ 
+  wallet, 
+  addCoins, 
+  redeemPointsToCash, 
+  initialTab = 'wallet',
+  userProfile,
+  applyReferralCodePostSignup
+}: ReferralAndWalletProps) {
   const [activeTab, setActiveTab] = useState<'wallet' | 'referral'>(initialTab);
 
   React.useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  const [retroReferralCode, setRetroReferralCode] = useState('');
+  const [retroResultMsg, setRetroResultMsg] = useState<{ success: boolean; text: string } | null>(null);
+
+  const handleApplyRetroReferral = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!retroReferralCode.trim() || !applyReferralCodePostSignup) return;
+    
+    const res = applyReferralCodePostSignup(retroReferralCode);
+    setRetroResultMsg({ success: res.success, text: res.message });
+    if (res.success) {
+      setRetroReferralCode('');
+    }
+  };
   const [redeemPoints, setRedeemPoints] = useState<string>('2000');
   const [transferPhone, setTransferPhone] = useState('');
   const [transferAmount, setTransferAmount] = useState('');
@@ -24,9 +47,9 @@ export default function ReferralAndWallet({ wallet, addCoins, redeemPointsToCash
 
   // Invite codes information
   const referralState: ReferralState = {
-    code: "CHALO911KP",
-    pointsEarned: 12000,
-    signupsCount: 6,
+    code: userProfile?.referralCode || "CHALO911KP",
+    pointsEarned: userProfile?.referredBy ? 14000 : 12000,
+    signupsCount: userProfile?.referredBy ? 7 : 6,
     weeklyLeaderboard: LEADERBOARD_WEEKLY,
     monthlyLeaderboard: LEADERBOARD_MONTHLY,
     allTimeLeaderboard: LEADERBOARD_ALLTIME
@@ -34,7 +57,7 @@ export default function ReferralAndWallet({ wallet, addCoins, redeemPointsToCash
 
   const handleCopyLink = () => {
     setCopied(true);
-    navigator.clipboard?.writeText(`https://chalo.app/invite?code=${referralState.code}`);
+    navigator.clipboard?.writeText(`https://chaloone.com/invite?code=${referralState.code}`);
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -87,7 +110,7 @@ export default function ReferralAndWallet({ wallet, addCoins, redeemPointsToCash
             activeTab === 'wallet' ? 'border-amber-500 text-amber-600' : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}
         >
-          💳 Chalo Wallet & Pay
+          💳 Chalo One Wallet & Pay
         </button>
         <button
           type="button"
@@ -165,7 +188,7 @@ export default function ReferralAndWallet({ wallet, addCoins, redeemPointsToCash
 
               <div className="text-[10.5px] text-slate-500 font-medium leading-relaxed bg-amber-50/50 p-2.5 rounded-lg border border-amber-100/50">
                 <span className="font-bold text-amber-800">Conversion Rate:</span> 20 Points = ₹1 Cash. 
-                <span className="block mt-0.5 text-[9.5px] text-slate-400">Redeem Points for direct cash will only add direct Chalo Wallet cash credits. It is purely for in-app microsettlements and is <strong>not redeemable, withdrawable, or transferable for real money</strong>.</span>
+                <span className="block mt-0.5 text-[9.5px] text-slate-400">Redeem Points for direct cash will only add direct Chalo One Wallet cash credits. It is purely for in-app microsettlements and is <strong>not redeemable, withdrawable, or transferable for real money</strong>.</span>
               </div>
 
               <button
@@ -244,10 +267,10 @@ export default function ReferralAndWallet({ wallet, addCoins, redeemPointsToCash
           {/* Main Invitation info panel */}
           <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-4 border border-indigo-150 flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="space-y-1.5 flex-1 text-center md:text-left">
-              <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase px-2 py-0.5 rounded font-mono">Chalo Ambassador</span>
+              <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase px-2 py-0.5 rounded font-mono">Chalo One Ambassador</span>
               <h3 className="text-sm font-extrabold text-gray-950 font-display">Invite Friend ➔ Collect 2000 Points!</h3>
               <p className="text-xs text-indigo-800 leading-relaxed font-semibold">
-                Earn equivalent to **₹100 direct Cash** the minute your friends sign-up on Chalo! Weekly leaders get surprise hampers from our Brand Partners!
+                Earn equivalent to **₹100 direct Cash** the minute your friends sign-up on Chalo One! Weekly leaders get surprise hampers from our Brand Partners!
               </p>
             </div>
             {/* Simple vector QR simulator */}
@@ -274,6 +297,73 @@ export default function ReferralAndWallet({ wallet, addCoins, redeemPointsToCash
               </button>
             </div>
           </div>
+
+          {/* Retrospective post-signup referral input card */}
+          {userProfile && !userProfile.referredBy && (
+            <div className="bg-amber-50/60 border border-amber-200 rounded-2xl p-4 space-y-3 shadow-2xs">
+              <div>
+                <h4 className="text-xs font-black text-amber-950 uppercase tracking-wide flex items-center gap-1">
+                  <Gift className="w-4 h-4 text-amber-700 animate-bounce" />
+                  Missed adding referral code during Sign Up?
+                </h4>
+                <p className="text-[11px] text-amber-800 font-semibold leading-relaxed mt-0.5">
+                  Enter your friend's invite code here retrospectively to instantly unlock <strong>2,000 extra points</strong> (valued at ₹100 cash back) for BOTH of you!
+                </p>
+              </div>
+
+              <form onSubmit={handleApplyRetroReferral} className="flex gap-2">
+                <input
+                  type="text"
+                  value={retroReferralCode}
+                  onChange={(e) => setRetroReferralCode(e.target.value)}
+                  placeholder="e.g. PARTNER_MEMBER, KUNAL123..."
+                  className="bg-white border border-amber-300 rounded-xl px-3 py-2 text-xs font-bold uppercase placeholder:normal-case outline-none focus:ring-1 focus:ring-amber-500 flex-1"
+                />
+                <button
+                  type="submit"
+                  className="bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black uppercase tracking-wider px-4 py-2 rounded-xl transition shadow-xs cursor-pointer"
+                >
+                  Apply Code
+                </button>
+              </form>
+
+              {retroResultMsg && (
+                <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
+                  retroResultMsg.success ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                }`}>
+                  {retroResultMsg.success ? (
+                    <>
+                      <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{retroResultMsg.text}</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                      <span>{retroResultMsg.text}</span>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Already referred banner status */}
+          {userProfile && userProfile.referredBy && (
+            <div className="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-3.5 flex items-center justify-between shadow-2xs">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 bg-emerald-100 rounded-xl text-emerald-700">
+                  <Gift className="w-4 h-4" />
+                </div>
+                <div>
+                  <h5 className="text-xs font-bold text-emerald-950 uppercase leading-none">Welcome Bonus Unlocked</h5>
+                  <span className="text-[10px] text-emerald-700 font-semibold block mt-1">Referred by: <strong className="font-mono text-xs uppercase">{userProfile.referredBy}</strong></span>
+                </div>
+              </div>
+              <span className="text-[10px] font-mono font-black text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg uppercase">
+                +2,000 PTS Applied
+              </span>
+            </div>
+          )}
 
           {/* Ambassador stats */}
           <div className="grid grid-cols-2 gap-3">

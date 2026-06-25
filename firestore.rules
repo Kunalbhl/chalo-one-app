@@ -1,8 +1,57 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Default deny catch-all
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
+    }
+
+    // Helper: Checks if user is authenticated
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Helper: Checks if user is the Super Admin (Kunal)
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'kunalpareekusa@gmail.com' ||
+        request.auth.uid == 'user_kunal'
+      );
+    }
+
+    // Helper: Check valid ID structure
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    // Collection: affiliates
+    match /affiliates/{affiliateId} {
+      allow read: if isSuperAdmin() || (isSignedIn() && request.auth.uid == affiliateId);
+      allow create: if isSuperAdmin() || (isSignedIn() && request.auth.uid == affiliateId);
+      allow update: if isSuperAdmin() || (isSignedIn() && request.auth.uid == affiliateId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['id', 'email', 'status', 'commissionRate']));
+      allow delete: if isSuperAdmin();
+    }
+
+    // Collection: clicks_log
+    match /clicks_log/{clickId} {
+      allow read: if isSuperAdmin() || (isSignedIn() && resource.data.affiliateId == request.auth.uid);
+      allow create: if isSignedIn(); // Any verified partner or client can register clicks
+      allow update, delete: if isSuperAdmin();
+    }
+
+    // Collection: payouts
+    match /payouts/{payoutId} {
+      allow read: if isSuperAdmin() || (isSignedIn() && resource.data.affiliateId == request.auth.uid);
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // Collection: system_config
+    match /system_config/{configId} {
+      allow read: if isSignedIn(); // All partners need to read standard settings (e.g., default commission)
+      allow write: if isSuperAdmin();
     }
   }
 }
