@@ -116,6 +116,32 @@ export default function StaysModule({ addOrderToActivity }: StaysModuleProps) {
       paymentMethod: selectedPaymentMethod === 'UPI_GPAY' ? 'UPI AutoPay Verified' : selectedPaymentMethod === 'CHALO_WALLET' ? 'Chalo Wallet Split Settlement' : 'Credit Card Visa Sync'
     });
 
+    // Securely Sync to Commission Junction (CJ) Affiliate Program if booked via Booking.com
+    if (selectedDeal.platform.toLowerCase().includes("booking") || selectedDeal.platform.toLowerCase().includes("bcom")) {
+      fetch('/api/affiliate/booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hotelName: selectedHotel.name,
+          amount: finalFare > 0 ? finalFare : 0,
+          platform: selectedDeal.platform,
+          guestName: guestName,
+          guests: guests,
+          nights: nights,
+          rooms: rooms,
+          checkIn: checkIn,
+          checkOut: checkOut
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.synced) {
+          console.log(`[CJ Affiliate Link] Successfully registered booking ${data.trackingId} under Kunal's CJ profile.`);
+        }
+      })
+      .catch(err => console.error("CJ Sync Error:", err));
+    }
+
     alert(`Hooray! Stay at ${selectedHotel.name} booked successfully. Added to your ongoing activities list.`);
     
     // Reset
@@ -811,7 +837,7 @@ export default function StaysModule({ addOrderToActivity }: StaysModuleProps) {
 
               {/* Indian Mobile contact with static +91 Country Code by default */}
               <div className="space-y-1">
-                <label className="text-[9px] font-bold text-slate-400 uppercase font-mono block pl-1">Indian Mobile Contact (+91 default)</label>
+                <label className="text-[9px] font-bold text-slate-400 uppercase font-mono block pl-1">Mobile Number</label>
                 <div className="relative flex">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-extrabold text-slate-500 font-mono">
                     +91

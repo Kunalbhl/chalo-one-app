@@ -5,9 +5,10 @@ import { PlayCircle, Clock, MapPin, Search, Calendar, Heart, ArrowUpRight, Check
 interface ActivityCenterProps {
   activityList: OngoingActivity[];
   cancelActivity: (id: string) => void;
+  onActivityClick?: (category: 'rides' | 'food' | 'mart' | 'stays' | 'intercity') => void;
 }
 
-export default function ActivityCenter({ activityList, cancelActivity }: ActivityCenterProps) {
+export default function ActivityCenter({ activityList, cancelActivity, onActivityClick }: ActivityCenterProps) {
   const [activeTab, setActiveTab] = useState<'ongoing' | 'history'>('ongoing');
   const [searchVal, setSearchVal] = useState('');
   const [recentSearches, setRecentSearches] = useState<string[]>(['Uber', 'Swiggy', 'Biryani']);
@@ -134,7 +135,12 @@ export default function ActivityCenter({ activityList, cancelActivity }: Activit
         <div className="space-y-4 animate-fade-in">
           {filteredOngoing.length > 0 ? (
             filteredOngoing.map((item) => (
-              <div key={item.id} className="bg-white rounded-2xl border border-gray-150 p-4 space-y-3.5 shadow-sm relative overflow-hidden">
+              <div 
+                key={item.id} 
+                onClick={() => onActivityClick?.(item.category)}
+                className="bg-white rounded-2xl border border-gray-150 p-4 space-y-3.5 shadow-sm relative overflow-hidden cursor-pointer hover:border-amber-400 hover:shadow-md transition-all group"
+                title="Click to view comparative details"
+              >
                 {/* Yellow light pulse animation on ongoing card */}
                 <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-500"></div>
 
@@ -146,7 +152,7 @@ export default function ActivityCenter({ activityList, cancelActivity }: Activit
                       </span>
                       <span className="text-[10px] text-gray-400 font-mono">ID: {item.id}</span>
                     </div>
-                    <h4 className="text-sm font-semibold text-gray-900 mt-1 font-display tracking-tight leading-snug">{item.title}</h4>
+                    <h4 className="text-sm font-semibold text-gray-900 mt-1 font-display tracking-tight leading-snug group-hover:text-amber-600 transition-colors">{item.title}</h4>
                     {item.subtitle && <p className="text-xs text-gray-500 mt-0.5 leading-snug">{item.subtitle}</p>}
                   </div>
 
@@ -186,13 +192,21 @@ export default function ActivityCenter({ activityList, cancelActivity }: Activit
                     {item.time} ({item.date})
                   </span>
 
-                  <button
-                    type="button"
-                    onClick={() => cancelActivity(item.id)}
-                    className="text-red-500 hover:text-red-700 border border-transparent hover:border-red-150 px-3 py-1 rounded text-[11px] font-bold transition-all cursor-pointer"
-                  >
-                    Cancel Booking
-                  </button>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[10px] text-amber-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                      View Details ➔
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        cancelActivity(item.id);
+                      }}
+                      className="text-red-500 hover:text-red-700 border border-transparent hover:border-red-150 px-3 py-1 rounded text-[11px] font-bold transition-all cursor-pointer relative z-10"
+                    >
+                      Cancel Booking
+                    </button>
+                  </div>
                 </div>
               </div>
             ))
@@ -209,7 +223,12 @@ export default function ActivityCenter({ activityList, cancelActivity }: Activit
         <div className="space-y-3 animate-fade-in">
           {filteredHistory.length > 0 ? (
             filteredHistory.map((item) => (
-              <div key={item.id} className="bg-white rounded-xl border border-gray-150 p-3.5 hover:bg-gray-50/50 transition flex justify-between items-center text-xs">
+              <div 
+                key={item.id} 
+                onClick={() => onActivityClick?.(item.category)}
+                className="bg-white rounded-xl border border-gray-150 p-3.5 hover:bg-gray-50 hover:border-amber-400 transition flex justify-between items-center text-xs cursor-pointer group"
+                title="Click to view comparative details"
+              >
                 <div className="space-y-1 pr-2">
                   <div className="flex items-center space-x-1.5">
                     <span className="text-[9.5px] bg-gray-100 text-gray-600 font-bold px-1.5 py-0.2 rounded uppercase font-mono">
@@ -217,18 +236,23 @@ export default function ActivityCenter({ activityList, cancelActivity }: Activit
                     </span>
                     <span className="text-[9.5px] text-gray-400 font-mono">ID: {item.id}</span>
                   </div>
-                  <h4 className="font-bold text-gray-900 leading-tight">{item.title}</h4>
+                  <h4 className="font-bold text-gray-900 leading-tight group-hover:text-amber-600 transition-colors">{item.title}</h4>
                   {item.subtitle && <p className="text-[10.5px] text-gray-400 font-medium leading-none">{item.subtitle}</p>}
                   <p className="text-[9.5px] text-gray-400 font-semibold">{item.time} • {item.date}</p>
                 </div>
 
-                <div className="text-right font-mono text-xs shrink-0 pl-1">
+                <div className="text-right font-mono text-xs shrink-0 pl-1 flex flex-col items-end">
                   <span className="font-black text-gray-950 block">₹{item.amount}</span>
-                  <span className={`text-[9.5px] font-bold block mt-1 uppercase ${
-                    item.status === 'completed' ? 'text-emerald-600' : 'text-red-500'
-                  }`}>
-                    {item.status === 'completed' ? 'Success' : 'Cancelled'}
-                  </span>
+                  <div className="flex items-center space-x-1.5 mt-1">
+                    <span className="text-[9px] text-amber-600 font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                      View Details ➔
+                    </span>
+                    <span className={`text-[9.5px] font-bold block uppercase ${
+                      item.status === 'completed' ? 'text-emerald-600' : 'text-red-500'
+                    }`}>
+                      {item.status === 'completed' ? 'Success' : 'Cancelled'}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))

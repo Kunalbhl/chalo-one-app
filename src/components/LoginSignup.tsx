@@ -20,6 +20,8 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { UserProfile, AppPreferences } from '../types';
+import { db, FIREBASE_DATABASE_SECRET } from '../firebase';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 interface LoginSignupProps {
   onLoginSuccess: (user: UserProfile, prefs?: AppPreferences) => void;
@@ -35,7 +37,7 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
 
   // Signup fields
   const [name, setName] = useState<string>('');
-  const [phone, setPhone] = useState<string>('');
+  const [phone, setPhone] = useState<string>('+91 ');
   const [email, setEmail] = useState<string>('');
   const [dob, setDob] = useState<string>('');
   const [gender, setGender] = useState<string>('Male');
@@ -94,16 +96,61 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
     }
   }, []);
 
-  const handleManualLogin = (e: React.FormEvent) => {
+  const handleManualLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!emailOrPhone.trim() || !password.trim()) {
       alert('Please fill in your credentials.');
       return;
     }
 
-    // Attempt to match with saved profile in our registered users database
+    const inputLower = emailOrPhone.toLowerCase().trim();
+
+    // 1. Direct Firebase Firestore check if database is available
+    if (db) {
+      try {
+        const userDocRef = doc(db, 'users', inputLower);
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists()) {
+          const cloudData = userSnap.data();
+          if (cloudData.password === password) {
+            const authenticatedUser: UserProfile = cloudData.profile;
+            
+            // Sync locally
+            const existsLocally = allUsers.some(u => u.email.toLowerCase() === inputLower);
+            if (!existsLocally) {
+              const updatedList = [...allUsers, { ...authenticatedUser, password }];
+              setAllUsers(updatedList);
+              localStorage.setItem('chalo_all_users', JSON.stringify(updatedList));
+            }
+
+            if (rememberMe) {
+              localStorage.setItem('chalo_remember_me', 'true');
+              localStorage.setItem('chalo_saved_profile', JSON.stringify(authenticatedUser));
+            } else {
+              localStorage.removeItem('chalo_remember_me');
+            }
+
+            localStorage.setItem('chalo_is_logged_in', 'true');
+            onLoginSuccess(authenticatedUser);
+            return;
+          } else {
+            // Check if it's Kunal admin with default override
+            if (inputLower === 'kunalpareekusa@gmail.com' && password === 'password123') {
+              // Permit fallback admin override below
+            } else {
+              alert('❌ Incorrect password. Please try again.');
+              return;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Could not query login in Firebase, trying local fallback:", err);
+      }
+    }
+
+    // 2. Fallback to saved local registered users list
     const matchedUser = allUsers.find(
-      u => u.email.toLowerCase() === emailOrPhone.toLowerCase().trim() || u.phone.trim() === emailOrPhone.trim()
+      u => u.email.toLowerCase() === inputLower || u.phone.trim() === emailOrPhone.trim()
     );
 
     if (!matchedUser) {
@@ -112,8 +159,7 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
     }
 
     if (matchedUser.password && matchedUser.password !== password) {
-      // Direct pass for Kunal's convenience or direct credentials
-      if (emailOrPhone.toLowerCase().trim() !== 'kunalpareekusa@gmail.com' || password !== 'password123') {
+      if (inputLower !== 'kunalpareekusa@gmail.com' || password !== 'password123') {
         alert('❌ Incorrect password. Please try again.');
         return;
       }
@@ -160,8 +206,10 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
       return;
     }
 
-    // Generate own referral code: Name + some random code
-    const generatedReferral = `${name.replace(/\s+/g, '')}_${Math.floor(100 + Math.random() * 900)}`;
+    // Generate own referral code: CHALO + name part + some random code
+    const cleanName = name.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 5);
+    const randomNum = Math.floor(100 + Math.random() * 900);
+    const generatedReferral = `CHALO${cleanName}${randomNum}`;
 
     let inviteeRewardAllocated = false;
     let referrerName = '';
@@ -256,6 +304,30 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
       localStorage.setItem('chalo_remember_me', 'true');
     }
 
+    // Persist registration in Firebase database synchronously
+    if (db) {
+      try {
+        const userDocRef = doc(db, 'users', emailLower);
+        setDoc(userDocRef, {
+          profile: newUser,
+          wallet: starterWallet,
+          preferences: savedPreferences || {
+            food: ['Zomato', 'Swiggy'],
+            mart: ['Blinkit', 'Zepto'],
+            rides: ['Uber', 'Ola'],
+            stays: ['Booking.com', 'Agoda'],
+            preferenceMode: 'cheapest'
+          },
+          password: password,
+          databaseSecret: FIREBASE_DATABASE_SECRET,
+          lastSyncedAt: new Date().toISOString()
+        }, { merge: true });
+        console.log("Profile registered in Firebase Firestore successfully.");
+      } catch (err) {
+        console.warn("Could not save registration details to Firebase Firestore:", err);
+      }
+    }
+
     if (inviteeRewardAllocated) {
       alert(`🎉 Registration successful! Welcome to Chalo One, ${name}! You have received 2000 reward points (₹100 cashback equivalent) for signing up with ${referrerName}'s invite code!`);
     } else {
@@ -302,6 +374,27 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
     if (gender === 'Female') return FEMALE_AVATARS;
     return OTHER_AVATARS;
   };
+
+  // Automatically select the first avatar from the new gender presets when gender changes, or enforce correct gender category
+  useEffect(() => {
+    const malePresets = MALE_AVATARS;
+    const femalePresets = FEMALE_AVATARS;
+    const otherPresets = OTHER_AVATARS;
+
+    if (gender === 'Male') {
+      if (!avatarUrl || femalePresets.includes(avatarUrl) || otherPresets.includes(avatarUrl)) {
+        setAvatarUrl(malePresets[0]);
+      }
+    } else if (gender === 'Female') {
+      if (!avatarUrl || malePresets.includes(avatarUrl) || otherPresets.includes(avatarUrl)) {
+        setAvatarUrl(femalePresets[0]);
+      }
+    } else {
+      if (!avatarUrl || malePresets.includes(avatarUrl) || femalePresets.includes(avatarUrl)) {
+        setAvatarUrl(otherPresets[0]);
+      }
+    }
+  }, [gender, avatarUrl]);
 
   // Quick secure options login
   const handleQuickBiometricLogin = (mode: 'fingerprint' | 'faceid' | 'pin') => {
@@ -419,7 +512,8 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
                     </label>
                   </div>
 
-                  <div className="flex items-center justify-between border-t border-slate-800/50 pt-2">
+                  {/* Hidden Affiliate Option as requested */}
+                  {/* <div className="flex items-center justify-between border-t border-slate-800/50 pt-2">
                     <label className="flex items-center space-x-2 cursor-pointer">
                       <input
                         type="checkbox"
@@ -429,10 +523,10 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
                       />
                       <span className="text-[10.5px] text-amber-400 font-extrabold uppercase select-none">🔑 I am an Affiliate Partner</span>
                     </label>
-                  </div>
+                  </div> */}
                 </div>
 
-                {isAffiliate && (
+                {/* {isAffiliate && (
                   <div className="bg-slate-950 p-3 rounded-2xl border border-slate-850 space-y-2 text-xs animate-fade-in">
                     <span className="text-[9px] text-amber-500 font-mono font-black uppercase tracking-wider block">Affiliate Platform Credentials</span>
                     <div className="space-y-1">
@@ -456,7 +550,7 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
                       />
                     </div>
                   </div>
-                )}
+                )} */}
 
               </div>
 
@@ -539,12 +633,21 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] text-slate-400 font-mono font-black uppercase tracking-wider block">Phone Number</label>
+                  <label className="text-[9px] text-slate-400 font-mono font-black uppercase tracking-wider block">Mobile Number</label>
                   <input
                     type="tel"
                     required
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    onChange={(e) => {
+                      let val = e.target.value;
+                      // Strip all non-digits
+                      let digits = val.replace(/\D/g, '');
+                      if (digits.startsWith('91')) {
+                        digits = digits.substring(2);
+                      }
+                      digits = digits.substring(0, 10);
+                      setPhone(digits ? `+91 ${digits}` : '+91 ');
+                    }}
                     placeholder="+91 99882 10492"
                     className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-amber-500 focus:outline-none text-xs font-bold text-white font-mono"
                   />
@@ -658,8 +761,8 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
                 </div>
               </div>
 
-              {/* Affiliate Registration Checkbox & fields */}
-              <div className="border-t border-slate-800/50 pt-2 space-y-2">
+              {/* Hidden Affiliate Registration as requested */}
+              {/* <div className="border-t border-slate-800/50 pt-2 space-y-2">
                 <label className="flex items-center space-x-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -696,7 +799,7 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
                     </div>
                   </div>
                 )}
-              </div>
+              </div> */}
 
               {/* Submit Registration */}
               <button

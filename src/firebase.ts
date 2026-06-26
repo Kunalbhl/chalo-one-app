@@ -43,4 +43,5 @@ if (app) {
   }
 }
 
+export const FIREBASE_DATABASE_SECRET = "FL2BSNMpV0ZAZl8nez9qX7QZX4He1EorXaVI1Fmf";
 export { auth, db };

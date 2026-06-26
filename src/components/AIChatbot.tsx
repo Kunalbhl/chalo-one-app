@@ -18,7 +18,7 @@ export default function AIChatbot({ userPreferences }: AIChatbotProps) {
     {
       id: 'welcome',
       role: 'assistant',
-      content: "👋 Namaste! I am Chalo, your India Everyday Super AI assistant.\n\nI can compare rates, find direct discounts, analyze ETAs, and help you save money on foods, groceries, hotels, or cab dispatch apps! How can I help you today?"
+      content: "👋 Namaste! I am Chalo One AI, your India Everyday Super AI assistant.\n\nI can compare rates, find direct discounts, analyze ETAs, and help you save money on foods, groceries, hotels, or cab dispatch apps! How can I help you today?"
     }
   ]);
   const [inputText, setInputText] = useState('');
@@ -97,7 +97,7 @@ export default function AIChatbot({ userPreferences }: AIChatbotProps) {
           </div>
           <div>
             <h2 className="text-sm font-extrabold text-gray-950 font-display">Chalo Super AI Advisor</h2>
-            <p className="text-[10px] text-gray-400 font-medium font-mono">Powered by Gemini Outstation Engines</p>
+            <p className="text-[10px] text-gray-400 font-medium font-mono">Powered by Chalo One AI Outstation Engines</p>
           </div>
         </div>
         <span className="text-[9px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-full border border-emerald-200">

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { db } from './firebase';
+// @ts-ignore
+import appLogo from './assets/images/logo.png';
+import { db, FIREBASE_DATABASE_SECRET } from './firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { 
   UserProfile, 
@@ -283,6 +285,58 @@ export default function App() {
     }
   }, [preferences.biometricsEnabled, appMounted]);
 
+  // Synchronize and refresh referral codes of legacy users to the new format
+  useEffect(() => {
+    if (isLoggedIn && userProfile) {
+      const currentCode = userProfile.referralCode || '';
+      if (!currentCode.startsWith('CHALO')) {
+        const cleanName = userProfile.name.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 5);
+        const randomNum = Math.floor(100 + Math.random() * 900);
+        const upgradedCode = `CHALO${cleanName}${randomNum}`;
+        
+        const updatedProfile = {
+          ...userProfile,
+          referralCode: upgradedCode
+        };
+        setUserProfile(updatedProfile);
+        localStorage.setItem('chalo_user_profile', JSON.stringify(updatedProfile));
+
+        // Sync with local registered list
+        try {
+          const stored = localStorage.getItem('chalo_all_users');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            const nextList = parsed.map((u: any) => {
+              if (u.email.toLowerCase() === userProfile.email.toLowerCase().trim()) {
+                return { ...u, referralCode: upgradedCode };
+              }
+              return u;
+            });
+            localStorage.setItem('chalo_all_users', JSON.stringify(nextList));
+          }
+        } catch (e) {}
+
+        // Persist profile updates directly to Firebase database
+        if (db) {
+          try {
+            const userDocRef = doc(db, 'users', userProfile.email.toLowerCase().trim());
+            setDoc(userDocRef, {
+              profile: updatedProfile
+            }, { merge: true }).then(() => {
+              console.log("Upgraded referral details synced to Firebase Firestore.");
+            }).catch(err => {
+              console.warn("Could not sync upgraded referral to Firebase:", err);
+            });
+          } catch (err) {
+            console.warn("Could not persist profile changes to Firebase Firestore:", err);
+          }
+        }
+
+        console.log(`Upgraded legacy referral code of ${userProfile.name} to ${upgradedCode}`);
+      }
+    }
+  }, [isLoggedIn, userProfile, db]);
+
   // 4. Integrations switches
   const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccounts>({
     ola: false,
@@ -373,7 +427,7 @@ export default function App() {
       title: 'Chalo One AI Assistant',
       icon: '🤖',
       desc: 'Ask AI engine for comparing savings, etc.',
-      keywords: ['ai', 'assistant', 'ask', 'advisor', 'bot', 'chat', 'gemini', 'help', 'coupon', 'deals']
+      keywords: ['ai', 'assistant', 'ask', 'advisor', 'bot', 'chat', 'gemini', 'chalooneai', 'chalo', 'help', 'coupon', 'deals']
     },
     {
       id: 'wallet',
@@ -470,8 +524,9 @@ export default function App() {
   useEffect(() => {
     async function loadFirebaseData() {
       if (!db) return;
+      const emailKey = userProfile?.email ? userProfile.email.toLowerCase().trim() : 'kunalpareekusa@gmail.com';
       try {
-        const userDocRef = doc(db, 'users', 'kunalpareek');
+        const userDocRef = doc(db, 'users', emailKey);
         const userSnap = await getDoc(userDocRef);
         if (userSnap.exists()) {
           const cloudData = userSnap.data();
@@ -485,7 +540,7 @@ export default function App() {
       }
     }
     loadFirebaseData();
-  }, []);
+  }, [userProfile?.email]);
 
   const persistFirebaseUpdate = async (updatedWallet: ChaloWallet, updatedPrefs: AppPreferences, updatedLogs?: BiometricLog[]) => {
     const emailKey = userProfile?.email ? userProfile.email.toLowerCase().trim() : 'kunalpareekusa@gmail.com';
@@ -508,7 +563,9 @@ export default function App() {
         wallet: updatedWallet,
         preferences: updatedPrefs,
         addresses: savedAddresses,
-        securityAuditLogs: updatedLogs !== undefined ? updatedLogs : securityAuditLogs
+        securityAuditLogs: updatedLogs !== undefined ? updatedLogs : securityAuditLogs,
+        databaseSecret: FIREBASE_DATABASE_SECRET,
+        lastSyncedAt: new Date().toISOString()
       }, { merge: true });
     } catch (e) {
       console.warn('Could not persist state updates to Firestore:', e);
@@ -1062,9 +1119,7 @@ export default function App() {
         <header className="sticky top-0 z-30 bg-slate-900 text-white px-4 py-3 flex flex-col space-y-2.5 shadow-md">
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center space-x-2.5 cursor-pointer select-none" onClick={() => setActiveTab('home')}>
-              <div className="p-1 px-1.5 bg-gradient-to-br from-amber-400 to-amber-500 rounded-lg text-amber-950 shadow-sm">
-                <Sparkles className="w-4 h-4" />
-              </div>
+              <img src={appLogo} alt="Chalo One Logo" className="w-8 h-8 object-contain" referrerPolicy="no-referrer" />
               <div>
                 <h1 className="font-display font-black text-sm tracking-tight uppercase leading-none">Chalo One</h1>
                 <span className="text-[8px] text-amber-400 font-bold uppercase mt-1 block font-mono">AI Powered One Platform, Compare, Plan, Book & Order</span>
@@ -1331,20 +1386,38 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Dynamic Inner Subheader with back action button when inside nested comparative view pages */}
-        {!['home', 'activity', 'preferences'].includes(activeTab) && (
-          <div className="bg-amber-50 border-b border-amber-100 px-4 py-2 flex items-center justify-between sticky top-[57px] z-20">
-            <button
-              onClick={() => setActiveTab('home')}
-              className="text-[10px] font-black font-display text-amber-800 hover:text-amber-950 transition flex items-center space-x-1.5 uppercase select-none cursor-pointer"
-            >
-              <span>← Back to Super Dashboard</span>
-            </button>
-            <span className="text-[8px] bg-amber-500 font-extrabold px-1.5 py-0.5 rounded text-white font-mono uppercase tracking-wider">
-              {activeTab === 'checkout' ? 'checkout basket' : activeTab === 'wallet' ? 'wallet assets' : activeTab === 'ai' ? 'super advisor' : activeTab + ' comparison'}
+        {/* Dynamic Global Navigation Path & Page Indicator */}
+        <div className="bg-slate-900 text-white border-b border-slate-800 px-4 py-2.5 flex items-center justify-between sticky top-[57px] z-20 text-[10.5px] font-mono font-bold tracking-tight shadow-sm select-none">
+          <div className="flex items-center space-x-2">
+            <span className="text-amber-400">CHALO ONE AI</span>
+            <span className="text-gray-600">/</span>
+            <span className="uppercase text-slate-200">
+              {activeTab === 'home' ? 'Super Dashboard' : 
+               activeTab === 'rides' ? 'Rides Comparison' :
+               activeTab === 'food' ? 'Food Catalog' :
+               activeTab === 'mart' ? 'Mart Delivery' :
+               activeTab === 'stays' ? 'Stays Booking' :
+               activeTab === 'intercity' ? 'Intercity Cabs' :
+               activeTab === 'bills' ? 'Utility Recharges' :
+               activeTab === 'wallet' ? 'Coins & Cards Wallet' :
+               activeTab === 'activity' ? 'Live Activity Center' :
+               activeTab === 'support' ? 'Support Ticket Desk' :
+               activeTab === 'account' ? 'Profile & Account Settings' :
+               activeTab + ' Service'}
             </span>
           </div>
-        )}
+
+          <div className="flex items-center space-x-2">
+            {activeTab !== 'home' && (
+              <button
+                onClick={() => setActiveTab('home')}
+                className="text-[9.5px] bg-amber-500 hover:bg-amber-600 text-slate-950 font-black px-2.5 py-1 rounded-lg transition uppercase flex items-center space-x-1 cursor-pointer shadow-xs"
+              >
+                <span>← Back to Dashboard</span>
+              </button>
+            )}
+          </div>
+        </div>
 
         {/* MAIN CONTAINER FRAME */}
         <main className="flex-1 bg-slate-50 overflow-y-auto">
@@ -1560,29 +1633,61 @@ export default function App() {
                       }}
                       initial="hidden"
                       animate="visible"
-                      className="grid grid-cols-2 gap-2.5 mt-2 font-display font-bold"
+                      className="grid grid-cols-1 md:grid-cols-3 gap-3.5 mt-2 font-display font-bold"
                     >
                       {[
-                        { id: 'rides', title: '🚗 Rides', desc: 'Uber, Ola, Rapido comparative pricing', colorClass: 'border-blue-100 bg-blue-50/40 text-blue-800 hover:border-blue-300' },
-                        { id: 'intercity', title: '✈️ Intercity Routes', desc: 'Outstation cab routes prices locator', colorClass: 'border-indigo-100 bg-indigo-50/40 text-indigo-800 hover:border-indigo-300' },
-                        { id: 'food', title: '🍔 Food Delivery', desc: 'Settle Zomato & Swiggy menus saver pools', colorClass: 'border-orange-100 bg-orange-50/40 text-orange-850 hover:border-orange-300' },
-                        { id: 'mart', title: '🛒 Fast Grocery', desc: 'Blinkit vs Zepto absolute price comparisons', colorClass: 'border-emerald-100 bg-emerald-50/40 text-emerald-850 hover:border-emerald-300' },
-                        { id: 'stays', title: '🏨 Book Stays', desc: 'Agoda & Booking.com live comparative tariffs', colorClass: 'border-purple-100 bg-purple-50/40 text-purple-850 hover:border-purple-300' },
-                        { id: 'bills', title: '⚡ Utility Bills', desc: 'Settle Broadband, Water & Electricity invoices', colorClass: 'border-yellow-100 bg-yellow-50/40 text-amber-800 hover:border-yellow-300' }
+                        { 
+                          id: 'rides', 
+                          title: '🚕 Local Cabs', 
+                          desc: 'Compare Uber, Ola, and Rapido routes and prices instantly', 
+                          colorClass: 'border-blue-100 bg-blue-50/40 text-blue-800 hover:border-blue-200',
+                          tab: 'rides',
+                          label: 'Book Cabs ➔'
+                        },
+                        { 
+                          id: 'intercity', 
+                          title: '✈️ Outstation Cabs', 
+                          desc: 'Book long-distance highway routes and outstation cab tariffs', 
+                          colorClass: 'border-cyan-100 bg-cyan-50/40 text-cyan-850 hover:border-cyan-200',
+                          tab: 'intercity',
+                          label: 'Compare Intercity ➔'
+                        },
+                        { 
+                          id: 'food', 
+                          title: '🍔 Food Delivery', 
+                          desc: 'Compare live Swiggy and Zomato restaurant menu pricing', 
+                          colorClass: 'border-orange-100 bg-orange-50/40 text-orange-850 hover:border-orange-200',
+                          tab: 'food',
+                          label: 'Order Food ➔'
+                        },
+                        { 
+                          id: 'mart', 
+                          title: '🛒 Fast Grocery', 
+                          desc: 'Compare grocery bags on Blinkit, Zepto, and Instamart', 
+                          colorClass: 'border-emerald-100 bg-emerald-50/40 text-emerald-850 hover:border-emerald-200',
+                          tab: 'mart',
+                          label: 'Shop Grocery ➔'
+                        },
+                        { 
+                          id: 'stays', 
+                          title: '🏨 Book Stays', 
+                          desc: 'Compare live tariffs and reviews on Agoda and Booking.com', 
+                          colorClass: 'border-purple-100 bg-purple-50/40 text-purple-850 hover:border-purple-200',
+                          tab: 'stays',
+                          label: 'Find Stays ➔'
+                        },
+                        { 
+                          id: 'bills', 
+                          title: '⚡ Utility Bills', 
+                          desc: 'Pay electricity, water, gas, or broadband bills with coupon rewards', 
+                          colorClass: 'border-rose-100 bg-rose-50/40 text-rose-850 hover:border-rose-200',
+                          tab: 'bills',
+                          label: 'Pay Bills ➔'
+                        }
                       ].map(tile => (
-                        <motion.button
+                        <motion.div
                           key={tile.id}
                           id={`category_tile_${tile.id}`}
-                          type="button"
-                          onClick={() => {
-                            const anyTile = tile as any;
-                            if (anyTile.isAIPrompt) {
-                              setGlobalSearchQuery(anyTile.prompt || '');
-                              setActiveTab('ai');
-                            } else {
-                              setActiveTab(tile.id);
-                            }
-                          }}
                           variants={{
                             hidden: { opacity: 0, scale: 0.9, y: 15 },
                             visible: { 
@@ -1592,20 +1697,24 @@ export default function App() {
                               transition: { type: 'spring', stiffness: 260, damping: 20 }
                             },
                             hover: { 
-                              scale: 1.04, 
-                              y: -3, 
-                              boxShadow: '0 8px 16px -2px rgba(0,0,0,0.06), 0 4px 6px -1px rgba(0,0,0,0.02)',
+                              scale: 1.02, 
+                              y: -2, 
+                              boxShadow: '0 8px 16px -2px rgba(0,0,0,0.04), 0 4px 6px -1px rgba(0,0,0,0.01)',
                               transition: { type: 'spring', stiffness: 440, damping: 14 }
-                            },
-                            tap: { scale: 0.97 }
+                            }
                           }}
                           whileHover="hover"
-                          whileTap="tap"
-                          className={`p-4 rounded-3xl border text-left flex flex-col justify-between cursor-pointer shadow-xs ${tile.colorClass}`}
+                          onClick={() => setActiveTab(tile.tab as any)}
+                          className={`p-4 rounded-3xl border flex flex-col justify-between shadow-xs transition-all space-y-3.5 cursor-pointer ${tile.colorClass}`}
                         >
-                          <span className="text-xs font-black tracking-tight leading-none uppercase">{tile.title}</span>
-                          <span className="text-[10px] text-gray-400 font-semibold font-sans leading-tight mt-2.5 block">{tile.desc}</span>
-                        </motion.button>
+                          <div>
+                            <span className="text-xs font-black tracking-tight leading-none uppercase">{tile.title}</span>
+                            <span className="text-[10.5px] text-gray-400 font-medium font-sans leading-relaxed mt-2.5 block">{tile.desc}</span>
+                          </div>
+                          <div className="pt-1.5 flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-wide opacity-90">{tile.label}</span>
+                          </div>
+                        </motion.div>
                       ))}
                     </motion.div>
                   </div>
@@ -1614,11 +1723,11 @@ export default function App() {
                   <div className="space-y-2.5">
                     <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest pl-1 font-mono">Assisted Intelligence & Wallet Utilities</span>
                     
-                    {/* A. Gemini AI Shortcuts block */}
+                    {/* A. Chalo One AI Shortcuts block */}
                     <div className="bg-gradient-to-br from-indigo-900 to-indigo-950 text-white rounded-3xl p-4.5 border border-indigo-950 space-y-3 shadow-md">
                       <div className="flex items-center space-x-1.5">
                         <Bot className="w-4 h-4 text-amber-350 animate-pulse shrink-0" />
-                        <span className="text-[9.5px] text-amber-350 font-mono font-extrabold uppercase tracking-widest">Gemini Live Optimizer</span>
+                        <span className="text-[9.5px] text-amber-350 font-mono font-extrabold uppercase tracking-widest">Chalo One AI Live Optimizer</span>
                       </div>
 
                       <p className="text-[11px] leading-relaxed text-indigo-100 font-medium pl-0.5">
@@ -1793,6 +1902,7 @@ export default function App() {
                 <ActivityCenter 
                   activityList={convertedActivityList}
                   cancelActivity={cancelActivity}
+                  onActivityClick={(category) => setActiveTab(category)}
                 />
               )}
 

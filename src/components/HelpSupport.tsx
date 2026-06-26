@@ -32,7 +32,7 @@ export default function HelpSupport({
     e.preventDefault();
     if (!subject.trim() || !description.trim()) return;
 
-    const finalCategory = complaintCategory === 'Other' ? (customCategory.trim() || 'Note Lister / Other') : complaintCategory;
+    const finalCategory = complaintCategory === 'Other' ? (customCategory.trim() || 'Not Listed / Other') : complaintCategory;
 
     const newTicket: SupportTicket = {
       id: "CHALO-TKT-" + Math.floor(10000 + Math.random() * 90000),
@@ -154,14 +154,14 @@ export default function HelpSupport({
                   <option value="Stays">🏨 Hotels & Stays Comparison</option>
                   <option value="Payments">💳 Payments & Billing</option>
                   <option value="Wallet">💰 Wallet Points & Balance</option>
-                  <option value="Other">📝 Other / Note Lister</option>
+                  <option value="Other">📝 Other / Not Listed</option>
                 </select>
               </div>
 
-              {/* Dynamic Note Lister category box */}
+              {/* Dynamic Not Listed category box */}
               {complaintCategory === 'Other' && (
                 <div className="bg-amber-50/50 p-2.5 rounded-xl border border-amber-200 flex flex-col animate-fade-in">
-                  <span className="text-[9px] text-amber-800 font-bold uppercase pl-1 mb-1">Custom Category Name (Note Lister)</span>
+                  <span className="text-[9px] text-amber-800 font-bold uppercase pl-1 mb-1">Custom Category Name (Not Listed)</span>
                   <input
                     type="text"
                     value={customCategory}
@@ -233,100 +233,147 @@ export default function HelpSupport({
           </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          
-          {/* Ticket Listing Pane */}
-          <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-            {tickets.map(t => (
-              <button
+        <div className="space-y-3">
+          {tickets.map(t => {
+            const isSelected = selectedTicketId === t.id;
+            return (
+              <div
                 key={t.id}
-                type="button"
-                onClick={() => setSelectedTicketId(selectedTicketId === t.id ? null : t.id)}
-                className={`w-full text-left p-3 rounded-2xl border transition text-xs flex flex-col justify-between cursor-pointer space-y-1.5 ${
-                  selectedTicketId === t.id ? 'border-indigo-600 bg-indigo-50/40 ring-1 ring-indigo-500/20' : 'border-gray-150 hover:bg-slate-50'
+                className={`w-full p-4 rounded-3xl border transition text-xs flex flex-col space-y-3 cursor-pointer ${
+                  isSelected ? 'border-indigo-600 bg-indigo-50/20 shadow-xs' : 'border-gray-150 hover:bg-slate-50 bg-white'
                 }`}
+                onClick={() => {
+                  if (!isSelected) {
+                    setSelectedTicketId(t.id);
+                  }
+                }}
               >
-                <div className="flex justify-between items-start w-full">
-                  <span className="font-extrabold text-gray-950 truncate max-w-[170px]">{t.subject}</span>
-                  <span className={`text-[8.5px] font-bold px-2 py-0.5 rounded-full font-mono uppercase ${
-                    t.status === 'Open' ? 'bg-amber-100 text-amber-800' : t.status === 'In Progress' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
-                  }`}>
-                    {t.status}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between w-full text-[9.5px] text-gray-400 font-medium">
-                  <span>🏷 {t.category}</span>
-                  <span>📅 {t.createdAt}</span>
-                </div>
-                <div className="border-t border-dashed border-gray-100 pt-1.5 text-[10px] text-indigo-650 font-bold flex items-center justify-between w-full">
-                  <span>Chat Logs ({t.messages.length})</span>
-                  <span>Click to view responses</span>
-                </div>
-              </button>
-            ))}
-
-            {tickets.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-10 px-4 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-                <AlertCircle className="w-8 h-8 text-gray-300 mb-1.5" />
-                <p className="text-[11px] text-center text-gray-400 font-semibold">No tickets raised. Click "+ New Ticket" at the top right to file a dispute complaint.</p>
-              </div>
-            )}
-          </div>
-
-          {/* Chat Response Details Pane */}
-          <div className="border border-gray-150 rounded-2xl p-3 bg-slate-50/50 flex flex-col justify-between min-h-[220px]">
-            {activeTicket ? (
-              <div className="flex flex-col justify-between h-full space-y-3">
-                <div className="flex justify-between items-center pb-2 border-b border-gray-100">
-                  <span className="text-[9.5px] font-black uppercase tracking-wide bg-indigo-100 text-indigo-700 px-2.5 py-0.5 rounded-full">
-                    {activeTicket.id}
-                  </span>
-                  <span className="text-[10px] text-gray-400 font-semibold font-mono">{activeTicket.category}</span>
-                </div>
-
-                <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-56">
-                  {activeTicket.messages.map((m, id) => (
-                    <div
-                      key={id}
-                      className={`flex flex-col space-y-0.5 ${m.sender === 'user' ? 'items-end' : 'items-start'}`}
-                    >
-                      <div
-                        className={`p-2.5 rounded-2xl max-w-[90%] text-[11px] leading-relaxed ${
-                          m.sender === 'user' 
-                            ? 'bg-indigo-600 text-white rounded-br-none' 
-                            : 'bg-white text-gray-800 rounded-bl-none border border-gray-150 shadow-2xs'
-                        }`}
-                      >
-                        <p className="font-semibold">{m.text}</p>
-                      </div>
-                      <span className="text-[8.5px] text-gray-400 font-mono pl-1 pr-1">{m.timestamp}</span>
+                {/* Header info - clicking here toggles expand/collapse */}
+                <div 
+                  className="flex justify-between items-start w-full"
+                  onClick={(e) => {
+                    if (isSelected) {
+                      e.stopPropagation();
+                      setSelectedTicketId(null);
+                    }
+                  }}
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2 flex-wrap">
+                      <span className="font-extrabold text-gray-950 text-sm">{t.subject}</span>
+                      <span className="text-[9px] font-mono text-gray-400 font-bold">({t.id})</span>
                     </div>
-                  ))}
+                    <div className="flex items-center space-x-3 text-[10px] text-gray-500 font-semibold">
+                      <span>🏷️ {t.category}</span>
+                      <span>•</span>
+                      <span>📅 {t.createdAt}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <span className={`text-[8.5px] font-black px-2.5 py-1 rounded-full font-mono uppercase ${
+                      t.status === 'Open' ? 'bg-amber-100 text-amber-800 border border-amber-200' : t.status === 'In Progress' ? 'bg-blue-100 text-blue-800 border border-blue-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    }`}>
+                      {t.status}
+                    </span>
+                    <span className="text-gray-400 text-xs font-bold font-mono">
+                      {isSelected ? '▲' : '▼'}
+                    </span>
+                  </div>
                 </div>
 
-                <form onSubmit={handleReplySubmit} className="flex gap-1.5 shadow-xs bg-white rounded-xl p-1 border border-gray-200 mt-2">
-                  <input
-                    type="text"
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    placeholder="Type your message reply..."
-                    id="ticket_reply_input"
-                    className="w-full text-xs font-semibold outline-none px-2"
-                    required
-                  />
-                  <button type="submit" id="send_reply_btn" className="bg-indigo-650 hover:bg-indigo-700 text-white p-1.5 rounded-lg transition cursor-pointer">
-                    <Send className="w-3.5 h-3.5" />
-                  </button>
-                </form>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full py-10 text-center">
-                <MessageSquare className="w-10 h-10 text-gray-300 mb-2 animate-bounce" />
-                <p className="text-xs text-gray-450 font-bold">Select a support dispute ticket from the list to view live chat threads, agent replies, and status logs.</p>
-              </div>
-            )}
-          </div>
+                {/* If selected, show thread-like chat interface directly inside the card */}
+                {isSelected && (
+                  <div 
+                    className="border-t border-gray-150 pt-3 space-y-3"
+                    onClick={(e) => e.stopPropagation() /* prevent collapse on clicking inside chat */}
+                  >
+                    <span className="text-[9px] font-mono font-black text-indigo-550 uppercase tracking-widest block">Real-time Support Thread</span>
+                    
+                    {/* Chat messages stream list */}
+                    <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1 bg-slate-50 p-3 rounded-2xl border border-gray-150">
+                      {t.messages.map((m, id) => {
+                        const isUser = m.sender === 'user';
+                        return (
+                          <div
+                            key={id}
+                            className={`flex flex-col space-y-0.5 ${isUser ? 'items-end' : 'items-start'}`}
+                          >
+                            <span className="text-[8px] font-mono font-black uppercase text-slate-450 px-1">
+                              {isUser ? 'You' : 'Chalo Support Team'}
+                            </span>
+                            <div
+                              className={`p-2.5 rounded-2xl max-w-[85%] text-[11px] leading-relaxed ${
+                                isUser 
+                                  ? 'bg-indigo-600 text-white rounded-br-none font-medium' 
+                                  : 'bg-white text-gray-800 rounded-bl-none border border-gray-200 shadow-2xs font-medium'
+                              }`}
+                            >
+                              <p>{m.text}</p>
+                            </div>
+                            <span className="text-[8px] text-gray-400 font-mono pl-1 pr-1">{m.timestamp}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
 
+                    {/* Instant reply input form inside card */}
+                    <form 
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!replyText.trim()) return;
+                        
+                        // Call prop reply function
+                        replyToTicket(t.id, replyText);
+                        setReplyText('');
+
+                        // Simulate Support Desk reply
+                        setTimeout(() => {
+                          const replies = [
+                            "Thank you for reaching out to Chalo One Support. We have flagged your query with our billing desk, and a resolution agent has been dispatched to investigate this transaction.",
+                            "Our logistics hub has updated the status of your query. The credit should reflect in your wallet within 3-4 working hours.",
+                            "Your feedback is highly valued. Our customer support managers are looking into this directly. We appreciate your patience."
+                          ];
+                          const selectedReply = replies[Math.floor(Math.random() * replies.length)];
+                          t.messages.push({
+                            sender: 'support',
+                            text: selectedReply,
+                            timestamp: new Date().toLocaleTimeString()
+                          });
+                          t.status = 'In Progress';
+                          // Force state toggle update
+                          setSelectedTicketId(null);
+                          setTimeout(() => setSelectedTicketId(t.id), 50);
+                        }, 1800);
+                      }} 
+                      className="flex gap-2 bg-white rounded-xl p-1.5 border border-gray-200 shadow-2xs"
+                    >
+                      <input
+                        type="text"
+                        value={replyText}
+                        onChange={(e) => setReplyText(e.target.value)}
+                        placeholder="Type message reply to Support Team..."
+                        className="w-full text-xs font-semibold outline-none px-2 text-gray-800"
+                        required
+                      />
+                      <button 
+                        type="submit" 
+                        className="bg-indigo-650 hover:bg-indigo-700 text-white p-2 rounded-xl transition cursor-pointer flex items-center justify-center shrink-0"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                      </button>
+                    </form>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {tickets.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-10 px-4 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+              <AlertCircle className="w-8 h-8 text-gray-300 mb-1.5" />
+              <p className="text-[11px] text-center text-gray-400 font-semibold">No dispute tickets raised yet. Complete the form above to file a query.</p>
+            </div>
+          )}
         </div>
       </div>
 
