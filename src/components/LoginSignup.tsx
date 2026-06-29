@@ -22,6 +22,8 @@ import {
 import { UserProfile, AppPreferences } from '../types';
 import { db, FIREBASE_DATABASE_SECRET } from '../firebase';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
+// @ts-ignore
+import appLogo from '../assets/images/logo.png';
 
 interface LoginSignupProps {
   onLoginSuccess: (user: UserProfile, prefs?: AppPreferences) => void;
@@ -48,6 +50,16 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
   const [isAffiliate, setIsAffiliate] = useState<boolean>(false);
   const [companyName, setCompanyName] = useState<string>('');
   const [partnerDomain, setPartnerDomain] = useState<string>('chaloone.com');
+
+  // Forgot Password & Reset Password State Managers
+  const [showForgotModal, setShowForgotModal] = useState<boolean>(false);
+  const [forgotEmail, setForgotEmail] = useState<string>('');
+  const [resetSent, setResetSent] = useState<boolean>(false);
+  const [showResetForm, setShowResetForm] = useState<boolean>(false);
+  const [resetNewPassword, setResetNewPassword] = useState<string>('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState<string>('');
+  const [resetEmailTarget, setResetEmailTarget] = useState<string>('');
+  const [isSubmittingReset, setIsSubmittingReset] = useState<boolean>(false);
 
   // Quick Biometric login preference options for returning users
   const [hasRegisteredUser, setHasRegisteredUser] = useState<boolean>(false);
@@ -337,6 +349,92 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
     onLoginSuccess(newUser);
   };
 
+  const handleSendResetMail = (e: React.FormEvent) => {
+    e.preventDefault();
+    const emailLower = forgotEmail.trim().toLowerCase();
+    if (!emailLower) {
+      alert("Please enter a valid email address.");
+      return;
+    }
+
+    // Set mail as sent and store target email
+    setResetEmailTarget(emailLower);
+    setResetSent(true);
+  };
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (resetNewPassword.length < 6) {
+      alert("Password must be at least 6 characters.");
+      return;
+    }
+    if (resetNewPassword !== resetConfirmPassword) {
+      alert("Passwords do not match. Please verify.");
+      return;
+    }
+
+    setIsSubmittingReset(true);
+
+    try {
+      // 1. Update in local cache
+      const updatedUsers = allUsers.map(u => {
+        if (u.email.toLowerCase() === resetEmailTarget.toLowerCase().trim()) {
+          return { ...u, password: resetNewPassword };
+        }
+        return u;
+      });
+      setAllUsers(updatedUsers);
+      localStorage.setItem('chalo_all_users', JSON.stringify(updatedUsers));
+
+      // 2. Sync to Firebase Firestore if connected
+      if (db) {
+        const userDocRef = doc(db, 'users', resetEmailTarget.toLowerCase().trim());
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists()) {
+          await setDoc(userDocRef, {
+            password: resetNewPassword,
+            lastSyncedAt: new Date().toISOString()
+          }, { merge: true });
+          console.log("Password updated successfully in Firebase Firestore.");
+        }
+      }
+
+      // Check if this was our remembered/saved profile and update it too
+      const savedProfStr = localStorage.getItem('chalo_saved_profile');
+      if (savedProfStr) {
+        try {
+          const savedProf = JSON.parse(savedProfStr);
+          if (savedProf.email.toLowerCase() === resetEmailTarget.toLowerCase().trim()) {
+            localStorage.setItem('chalo_saved_profile', JSON.stringify({
+              ...savedProf,
+              password: resetNewPassword
+            }));
+          }
+        } catch(e) {}
+      }
+
+      alert("🔒 Password reset successful!\nYour password has been securely updated in the database.\nYou can now login with your new password.");
+
+      // Prefill login form
+      setEmailOrPhone(resetEmailTarget);
+      setPassword(resetNewPassword);
+      setIsLogin(true);
+
+      // Reset state
+      setShowForgotModal(false);
+      setForgotEmail('');
+      setResetSent(false);
+      setShowResetForm(false);
+      setResetNewPassword('');
+      setResetConfirmPassword('');
+    } catch (err: any) {
+      console.error("Error resetting password:", err);
+      alert("Could not reset password: " + err.message);
+    } finally {
+      setIsSubmittingReset(false);
+    }
+  };
+
   // Profile Image Selection / File upload Base64 utility
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -416,12 +514,17 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
 
       {/* TOP HEADER BRAND BAR */}
       <div className="text-center pt-8 space-y-2">
-        <div className="inline-flex p-3 bg-gradient-to-br from-amber-400 to-amber-500 rounded-3xl text-slate-950 shadow-lg animate-bounce">
-          <Sparkles className="w-7 h-7" />
+        <div className="inline-flex p-3 bg-slate-900 rounded-3xl border border-slate-800 shadow-lg animate-pulse">
+          <img 
+            src={appLogo} 
+            alt="Chalo One Logo" 
+            className="w-12 h-12 object-contain" 
+            referrerPolicy="no-referrer" 
+          />
         </div>
         <div>
           <h1 className="font-display font-black text-2xl tracking-tight uppercase">Chalo One</h1>
-          <p className="text-[10px] text-amber-400 font-mono tracking-widest uppercase font-bold">AI Powered One Platform, Compare, Plan, Book & Order</p>
+          <p className="text-[10px] text-amber-400 font-mono tracking-widest uppercase font-bold">AI Powered One Platform Compare Food, Rides, Stay & Order.</p>
         </div>
       </div>
 
@@ -508,8 +611,20 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
                         onChange={(e) => setRememberMe(e.target.checked)}
                         className="rounded border-slate-800 text-amber-500 focus:ring-0 bg-slate-950 cursor-pointer w-4 h-4"
                       />
-                      <span className="text-[10.5px] text-slate-400 font-bold select-none">Remember Me on this device</span>
+                      <span className="text-[10.5px] text-slate-400 font-bold select-none">Remember Me</span>
                     </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForgotEmail(emailOrPhone);
+                        setShowForgotModal(true);
+                        setResetSent(false);
+                        setShowResetForm(false);
+                      }}
+                      className="text-[10.5px] text-amber-400 hover:text-amber-500 font-extrabold cursor-pointer transition hover:underline bg-transparent border-none outline-none"
+                    >
+                      Forgot Password?
+                    </button>
                   </div>
 
                   {/* Hidden Affiliate Option as requested */}
@@ -855,6 +970,156 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
           © 2026 Chalo One Technologies Private Limited. All Rights Reserved.
         </div>
       </div>
+
+      {/* FORGOT PASSWORD MODAL */}
+      {showForgotModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-[32px] p-6 max-w-sm w-full space-y-5 relative shadow-2xl">
+            {/* Close button */}
+            <button
+              type="button"
+              onClick={() => {
+                setShowForgotModal(false);
+                setForgotEmail('');
+                setResetSent(false);
+                setShowResetForm(false);
+              }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white text-lg font-bold cursor-pointer"
+            >
+              ✕
+            </button>
+
+            {!showResetForm ? (
+              // STEP 1: INPUT EMAIL TO SEND LINK
+              <form onSubmit={handleSendResetMail} className="space-y-4">
+                <div className="text-center space-y-2">
+                  <div className="inline-flex p-3 bg-blue-500/10 rounded-2xl text-blue-400 border border-blue-500/20">
+                    <Mail className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-black text-sm uppercase tracking-tight text-white">Reset Account Password</h3>
+                    <p className="text-[10px] text-slate-400 mt-1">Provide your registered email address to receive a secure recovery code.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9.5px] text-slate-400 font-mono font-black uppercase tracking-wider block">Registered Email Address</label>
+                  <div className="relative">
+                    <input
+                      type="email"
+                      required
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                      placeholder="e.g. kunalpareekusa@gmail.com"
+                      className="w-full pl-10 pr-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 focus:border-amber-500 focus:outline-none text-xs font-bold text-white"
+                    />
+                    <Mail className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-500" />
+                  </div>
+                </div>
+
+                {resetSent ? (
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-2xl space-y-3">
+                    <div className="flex items-start space-x-2">
+                      <span className="text-emerald-400 font-black text-xs">✓</span>
+                      <p className="text-[10px] text-emerald-300 font-medium leading-relaxed">
+                        Simulation Email sent to <strong className="font-bold underline">{resetEmailTarget}</strong> successfully!
+                      </p>
+                    </div>
+                    
+                    <div className="border-t border-emerald-500/10 pt-2.5">
+                      <span className="text-[8px] text-slate-400 font-mono font-bold uppercase tracking-wider block mb-1">Preview Simulator Link:</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowResetForm(true)}
+                        className="w-full py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-black text-[9px] uppercase tracking-widest rounded-xl shadow-xs transition cursor-pointer"
+                      >
+                        📬 Click here to open Reset Mail Link
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="submit"
+                    className="w-full py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-xs tracking-widest uppercase rounded-2xl transition shadow-lg cursor-pointer"
+                  >
+                    Send Reset Mail
+                  </button>
+                )}
+              </form>
+            ) : (
+              // STEP 2: INPUT NEW PASSWORD
+              <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
+                <div className="text-center space-y-2">
+                  <div className="inline-flex p-3 bg-amber-500/10 rounded-2xl text-amber-400 border border-amber-500/20">
+                    <Lock className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-black text-sm uppercase tracking-tight text-white">Create New Password</h3>
+                    <p className="text-[10px] text-slate-400 mt-1">Secure password reset for <span className="text-amber-400 font-bold">{resetEmailTarget}</span></p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-[9.5px] text-slate-400 font-mono font-black uppercase tracking-wider block">New Access Password</label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        value={resetNewPassword}
+                        onChange={(e) => setResetNewPassword(e.target.value)}
+                        placeholder="Minimum 6 characters"
+                        className="w-full pl-10 pr-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 focus:border-amber-500 focus:outline-none text-xs font-mono text-white"
+                      />
+                      <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-500" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9.5px] text-slate-400 font-mono font-black uppercase tracking-wider block">Confirm New Password</label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        value={resetConfirmPassword}
+                        onChange={(e) => setResetConfirmPassword(e.target.value)}
+                        placeholder="Confirm password"
+                        className="w-full pl-10 pr-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 focus:border-amber-500 focus:outline-none text-xs font-mono text-white"
+                      />
+                      <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-500" />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end px-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-[9.5px] text-slate-400 hover:text-white uppercase font-mono font-bold"
+                    >
+                      {showPassword ? "Hide Passwords" : "Show Passwords"}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmittingReset}
+                  className="w-full py-3.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-xs tracking-widest uppercase rounded-2xl transition shadow-lg cursor-pointer disabled:opacity-50 flex items-center justify-center space-x-2"
+                >
+                  {isSubmittingReset ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></span>
+                      <span>Saving Securely...</span>
+                    </>
+                  ) : (
+                    <span>Update Secure Database</span>
+                  )}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
     </div>
   );

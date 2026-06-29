@@ -7,18 +7,22 @@ interface AIAssistantProps {
   foodPrefs: string[];
   martPrefs: string[];
   ridePrefs: string[];
+  initialQuery?: string;
+  onClearInitialQuery?: () => void;
 }
 
 export default function AIAssistant({
   preferenceMode,
   foodPrefs,
   martPrefs,
-  ridePrefs
+  ridePrefs,
+  initialQuery,
+  onClearInitialQuery
 }: AIAssistantProps) {
   const [messages, setMessages] = useState<any[]>([
     {
       role: 'assistant',
-      content: "👋 Namaste! I am **Chalo One AI**. I can compare rates, ETAs, and cancel/surge policies in real time across Swiggy, Zomato, Blinkit, Zepto, Uber, Ola, Agoda and Booking.com.\n\nAsk me anything! For example:\n- *\"Cheapest way to travel Jaipur to Delhi?\"*\n- *\"Best Chicken Biryani deals under ₹300?\"*\n- *\"Cheapest milk nearby?\"*\n- *\"3-star hotel under ₹2500?\"*\n- *\"How can I save money?\"*"
+      content: "👋 Namaste! I am **Chalo One AI Assistant**. I can compare rates, ETAs, and cancel/surge policies in real time across Swiggy, Zomato, Blinkit, Zepto, Uber, Ola, Agoda and Booking.com.\n\nAsk me anything! For example:\n- *\"Cheapest way to travel Jaipur to Delhi?\"*\n- *\"Best Chicken Biryani deals under ₹300?\"*\n- *\"Cheapest milk nearby?\"*\n- *\"3-star hotel under ₹2500?\"*\n- *\"How can I save money?\"*"
     }
   ]);
   const [inputVal, setInputVal] = useState('');
@@ -82,6 +86,15 @@ export default function AIAssistant({
     }
   };
 
+  useEffect(() => {
+    if (initialQuery && initialQuery.trim()) {
+      handleSendMessage(initialQuery);
+      if (onClearInitialQuery) {
+        onClearInitialQuery();
+      }
+    }
+  }, [initialQuery]);
+
   return (
     <div id="ai_assistant_container" className="p-4 max-w-xl mx-auto flex flex-col h-[520px] font-sans text-gray-800">
       <div className="flex items-center space-x-2 pb-2.5 border-b border-gray-100 mb-2 shrink-0">
@@ -93,7 +106,7 @@ export default function AIAssistant({
             <h2 className="text-sm font-semibold text-gray-900 font-display">Chalo One AI Assistant</h2>
             <span className="text-[9px] bg-amber-100 text-amber-700 font-extrabold px-1.5 py-0.2 rounded uppercase">Live</span>
           </div>
-          <p className="text-[11px] text-gray-500">Cross-app comparison intelligence engine powered by Chalo One AI</p>
+          <p className="text-[11px] text-gray-500">Cross-app comparison intelligence engine powered by Chalo One</p>
         </div>
       </div>
 

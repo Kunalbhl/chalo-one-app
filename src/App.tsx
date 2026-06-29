@@ -35,6 +35,7 @@ import UnifiedCart from './components/UnifiedCart';
 import BiometricShield from './components/BiometricShield';
 import LoginSignup from './components/LoginSignup';
 import BillsModule from './components/BillsModule';
+import ChaloMapView from './components/ChaloMapView';
 
 import { 
   Home as HomeIcon, 
@@ -63,6 +64,7 @@ import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('home');
+  const [aiInitialQuery, setAiInitialQuery] = useState<string>('');
   const [accountInitialSection, setAccountInitialSection] = useState<string>('main');
   const [showFloatingChat, setShowFloatingChat] = useState<boolean>(false);
   const [showNotificationCenter, setShowNotificationCenter] = useState<boolean>(true);
@@ -495,7 +497,9 @@ export default function App() {
       setActiveTab(matches[0].id);
       setGlobalSearchQuery('');
     } else {
+      setAiInitialQuery(trimmed);
       setActiveTab('ai');
+      setGlobalSearchQuery('');
     }
     setGlobalSearchFocused(false);
   };
@@ -534,6 +538,7 @@ export default function App() {
           if (cloudData.preferences) setPreferences(cloudData.preferences);
           if (cloudData.addresses) setSavedAddresses(cloudData.addresses);
           if (cloudData.securityAuditLogs) setSecurityAuditLogs(cloudData.securityAuditLogs);
+          if (cloudData.connectedAccounts) setConnectedAccounts(cloudData.connectedAccounts);
         }
       } catch (e) {
         console.warn('Firebase connection offline, utilising local state:', e);
@@ -542,7 +547,25 @@ export default function App() {
     loadFirebaseData();
   }, [userProfile?.email]);
 
-  const persistFirebaseUpdate = async (updatedWallet: ChaloWallet, updatedPrefs: AppPreferences, updatedLogs?: BiometricLog[]) => {
+  // Load connected accounts from local storage on mount/user change
+  useEffect(() => {
+    const emailKey = userProfile?.email ? userProfile.email.toLowerCase().trim() : 'kunalpareekusa@gmail.com';
+    const localSaved = localStorage.getItem(`chalo_connected_accounts_${emailKey}`);
+    if (localSaved) {
+      try {
+        setConnectedAccounts(JSON.parse(localSaved));
+      } catch (e) {
+        console.warn("Stale connected accounts JSON", e);
+      }
+    }
+  }, [userProfile?.email]);
+
+  const persistFirebaseUpdate = async (
+    updatedWallet: ChaloWallet, 
+    updatedPrefs: AppPreferences, 
+    updatedLogs?: BiometricLog[],
+    updatedConnectedAccounts?: ConnectedAccounts
+  ) => {
     const emailKey = userProfile?.email ? userProfile.email.toLowerCase().trim() : 'kunalpareekusa@gmail.com';
     
     // Save to account-specific keys
@@ -550,6 +573,9 @@ export default function App() {
     localStorage.setItem(`chalo_preferences_${emailKey}`, JSON.stringify(updatedPrefs));
     if (updatedLogs !== undefined) {
       localStorage.setItem(`chalo_security_audit_logs_${emailKey}`, JSON.stringify(updatedLogs));
+    }
+    if (updatedConnectedAccounts !== undefined) {
+      localStorage.setItem(`chalo_connected_accounts_${emailKey}`, JSON.stringify(updatedConnectedAccounts));
     }
     
     // Update active user profile
@@ -564,6 +590,7 @@ export default function App() {
         preferences: updatedPrefs,
         addresses: savedAddresses,
         securityAuditLogs: updatedLogs !== undefined ? updatedLogs : securityAuditLogs,
+        connectedAccounts: updatedConnectedAccounts !== undefined ? updatedConnectedAccounts : connectedAccounts,
         databaseSecret: FIREBASE_DATABASE_SECRET,
         lastSyncedAt: new Date().toISOString()
       }, { merge: true });
@@ -587,19 +614,45 @@ export default function App() {
         const lng = position.coords.longitude;
         const coordsStr = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
         setGpsCoordinates(coordsStr);
-        const addressResolved = `Precise GPS Sourced: Room 402, Block 4, Palm Grove Apartments, Koramangala 4th Block, Bengaluru, Karnataka 560034`;
-        setGpsResolvedAddress(addressResolved);
-        setGpsFetching(false);
+        
+        // Dynamic reverse geocoding using Google Maps API if available, else highly robust Nominatim fallback
+        if (window.google && window.google.maps && window.google.maps.Geocoder) {
+          const geocoder = new window.google.maps.Geocoder();
+          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+            if (status === 'OK' && results && results[0]) {
+              setGpsResolvedAddress(results[0].formatted_address);
+            } else {
+              setGpsResolvedAddress(`Sourced Location, Sector 15 (Coords: ${lat.toFixed(5)}, ${lng.toFixed(5)})`);
+            }
+            setGpsFetching(false);
+          });
+        } else {
+          fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+            .then(res => res.json())
+            .then(data => {
+              if (data && data.display_name) {
+                setGpsResolvedAddress(data.display_name);
+              } else {
+                setGpsResolvedAddress(`Sourced GPS: Sector 6, Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`);
+              }
+              setGpsFetching(false);
+            })
+            .catch(() => {
+              setGpsResolvedAddress(`Sourced GPS: Sector 6, Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`);
+              setGpsFetching(false);
+            });
+        }
       },
       (error) => {
         console.warn("GPS failed", error);
-        const coordsStr = `Lat: 12.93524, Lng: 77.62451`;
+        const lat = 12.93524;
+        const lng = 77.62451;
+        const coordsStr = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
         setGpsCoordinates(coordsStr);
-        const addressResolved = `Precise GPS Sourced: Chalo One Tech Office, RMZ Ecospace Outer Ring Road, Bengaluru, Karnataka 560103`;
-        setGpsResolvedAddress(addressResolved);
+        setGpsResolvedAddress(`Chalo One Tech Office, RMZ Ecospace Outer Ring Road, Bengaluru, Karnataka 560103`);
         setGpsFetching(false);
       },
-      { enableHighAccuracy: true, timeout: 5000 }
+      { enableHighAccuracy: true, timeout: 8000 }
     );
   };
 
@@ -1086,7 +1139,12 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col text-slate-900 font-sans tracking-tight antialiased">
       
-      <div className="w-full max-w-7xl mx-auto bg-white min-h-screen flex flex-col shadow-2xl relative md:border-x border-slate-150 transition-all duration-300">
+      <motion.div 
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: "easeOut" }}
+        className="w-full max-w-7xl mx-auto bg-white min-h-screen flex flex-col shadow-2xl relative md:border-x border-slate-150 transition-all duration-300"
+      >
         
         {/* 🛡️ APP LAUNCH LOCK OVERLAY */}
         <BiometricShield 
@@ -1119,15 +1177,36 @@ export default function App() {
         <header className="sticky top-0 z-30 bg-slate-900 text-white px-4 py-3 flex flex-col space-y-2.5 shadow-md">
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center space-x-2.5 cursor-pointer select-none" onClick={() => setActiveTab('home')}>
-              <img src={appLogo} alt="Chalo One Logo" className="w-8 h-8 object-contain" referrerPolicy="no-referrer" />
+              {/* Logo container styled for a transparent PNG logo without a white background */}
+              <div className="w-8 h-8 flex items-center justify-center overflow-hidden shrink-0">
+                <img 
+                  src={appLogo} 
+                  alt="Chalo One Logo" 
+                  className="w-full h-full object-contain" 
+                  referrerPolicy="no-referrer" 
+                />
+              </div>
               <div>
                 <h1 className="font-display font-black text-sm tracking-tight uppercase leading-none">Chalo One</h1>
-                <span className="text-[8px] text-amber-400 font-bold uppercase mt-1 block font-mono">AI Powered One Platform, Compare, Plan, Book & Order</span>
+                <span className="text-[8px] text-amber-400 font-bold uppercase mt-1 block font-mono">AI Powered One Platform Compare Food, Rides, Stay & Order.</span>
               </div>
             </div>
 
             <div className="flex items-center space-x-3.5">
-            {/* Refer & Earn Premium Header Action */}
+              {/* CURRENT LOCATION HEADER TAB */}
+              <button
+                type="button"
+                onClick={() => setShowLocationSelectorModal(true)}
+                className="flex items-center space-x-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 rounded-full border border-slate-700/60 transition shadow-inner cursor-pointer"
+              >
+                <MapPin className="w-3 h-3 text-emerald-400 animate-pulse shrink-0" />
+                <span className="text-[9.5px] font-mono font-bold tracking-tight truncate max-w-[100px] sm:max-w-[150px]">
+                  {currentSelectedLocation ? (currentSelectedLocation.includes(':') ? currentSelectedLocation.split(':')[1].trim() : currentSelectedLocation.split(',')[0]) : "Koramangala, Bengaluru"}
+                </span>
+                <span className="text-[8px] text-amber-400 font-black uppercase tracking-wider hidden sm:inline">▼ CHANGE</span>
+              </button>
+
+              {/* Refer & Earn Premium Header Action */}
             <motion.button
               type="button"
               onClick={() => {
@@ -1179,29 +1258,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* GLOBAL CURRENT LOCATION SELECTOR IN HEADER */}
-        {['home', 'food', 'mart', 'intercity'].includes(activeTab) && (
-          <div className="w-full flex items-center justify-between bg-slate-950/45 hover:bg-slate-950/60 p-2 rounded-xl border border-slate-800 text-xs transition-colors shadow-inner">
-            <button
-              type="button"
-              onClick={() => setShowLocationSelectorModal(true)}
-              className="flex items-center space-x-2 text-slate-300 hover:text-amber-400 font-bold truncate transition cursor-pointer text-left flex-1 min-w-0"
-            >
-              <MapPin className="w-4 h-4 text-amber-400 shrink-0" />
-              <div className="truncate">
-                <span className="text-[8px] text-amber-500 uppercase font-mono font-black block tracking-wider leading-none mb-0.5">Active Delivery Location</span>
-                <span className="truncate text-slate-100 font-sans text-xs font-bold leading-none block">{currentSelectedLocation}</span>
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowLocationSelectorModal(true)}
-              className="text-[9px] font-black uppercase text-amber-400 hover:text-amber-500 bg-slate-900 px-2 py-1 rounded-md border border-slate-800 font-mono tracking-wider shrink-0 cursor-pointer transition ml-2"
-            >
-              Change ▾
-            </button>
-          </div>
-        )}
+        {/* GLOBAL CURRENT LOCATION SELECTOR IN HEADER REMOVED FOR OTHER TABS - DISPATCHED ONLY TO ACCOUNT PAGE ACCORDING TO USER SPECIFICATIONS */}
         </header>
 
         {/* LOCATION SELECTOR OVERLAY MODAL */}
@@ -1350,14 +1407,13 @@ export default function App() {
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase font-mono block">Full Address Line</label>
-                        <textarea
-                          required
-                          rows={2}
-                          value={newAddrLine}
-                          onChange={(e) => setNewAddrLine(e.target.value)}
-                          placeholder="House/Office number, Street, Locality, City"
-                          className="w-full p-2.5 bg-white border border-slate-200 rounded-xl focus:ring-1 focus:ring-amber-400 text-xs font-bold placeholder-slate-400 focus:outline-none"
+                        <label className="text-[9px] font-bold text-slate-400 uppercase font-mono block">Full Address Line (Google Search)</label>
+                        <ChaloMapView 
+                          label="" 
+                          placeholder="Search any city, street, or address in India" 
+                          initialValue={newAddrLine} 
+                          onLocationSelect={(addr) => setNewAddrLine(addr)}
+                          showMap={false}
                         />
                       </div>
 
@@ -1386,38 +1442,37 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Dynamic Global Navigation Path & Page Indicator */}
-        <div className="bg-slate-900 text-white border-b border-slate-800 px-4 py-2.5 flex items-center justify-between sticky top-[57px] z-20 text-[10.5px] font-mono font-bold tracking-tight shadow-sm select-none">
-          <div className="flex items-center space-x-2">
-            <span className="text-amber-400">CHALO ONE AI</span>
-            <span className="text-gray-600">/</span>
-            <span className="uppercase text-slate-200">
-              {activeTab === 'home' ? 'Super Dashboard' : 
-               activeTab === 'rides' ? 'Rides Comparison' :
-               activeTab === 'food' ? 'Food Catalog' :
-               activeTab === 'mart' ? 'Mart Delivery' :
-               activeTab === 'stays' ? 'Stays Booking' :
-               activeTab === 'intercity' ? 'Intercity Cabs' :
-               activeTab === 'bills' ? 'Utility Recharges' :
-               activeTab === 'wallet' ? 'Coins & Cards Wallet' :
-               activeTab === 'activity' ? 'Live Activity Center' :
-               activeTab === 'support' ? 'Support Ticket Desk' :
-               activeTab === 'account' ? 'Profile & Account Settings' :
-               activeTab + ' Service'}
-            </span>
-          </div>
+        {/* Dynamic Global Navigation Path & Page Indicator - Hidden on home tab per user specifications */}
+        {activeTab !== 'home' && (
+          <div className="bg-slate-900 text-white border-b border-slate-800 px-4 py-2.5 flex items-center justify-between sticky top-[57px] z-20 text-[10.5px] font-mono font-bold tracking-tight shadow-sm select-none">
+            <div className="flex items-center space-x-2">
+              <span className="text-amber-400">CHALO ONE AI</span>
+              <span className="text-gray-600">/</span>
+              <span className="uppercase text-slate-200">
+                {activeTab === 'rides' ? 'Rides Comparison' :
+                 activeTab === 'food' ? 'Food Catalog' :
+                 activeTab === 'mart' ? 'Mart Delivery' :
+                 activeTab === 'stays' ? 'Stays Booking' :
+                 activeTab === 'intercity' ? 'Intercity Cabs' :
+                 activeTab === 'bills' ? 'Utility Recharges' :
+                 activeTab === 'wallet' ? 'Coins & Cards Wallet' :
+                 activeTab === 'activity' ? 'Live Activity Center' :
+                 activeTab === 'support' ? 'Support Ticket Desk' :
+                 activeTab === 'account' ? 'Profile & Account Settings' :
+                 activeTab + ' Service'}
+              </span>
+            </div>
 
-          <div className="flex items-center space-x-2">
-            {activeTab !== 'home' && (
+            <div className="flex items-center space-x-2">
               <button
                 onClick={() => setActiveTab('home')}
                 className="text-[9.5px] bg-amber-500 hover:bg-amber-600 text-slate-950 font-black px-2.5 py-1 rounded-lg transition uppercase flex items-center space-x-1 cursor-pointer shadow-xs"
               >
                 <span>← Back to Dashboard</span>
               </button>
-            )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* MAIN CONTAINER FRAME */}
         <main className="flex-1 bg-slate-50 overflow-y-auto">
@@ -1794,24 +1849,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* D. Mini Active Driver Notification banner if ongoing works exist */}
-                    {activities.some(act => act.status === 'active') && (
-                      <div className="bg-slate-900 text-white rounded-3xl p-4 shadow-md space-y-2.5 flex items-center justify-between">
-                        <div>
-                          <span className="text-[8.5px] bg-amber-500 text-slate-950 font-black px-1.5 py-0.2 rounded uppercase font-mono">Active Ongoing Journey</span>
-                          <h4 className="text-xs font-bold font-display mt-1 text-slate-100">Sedan Cab traveling to destination hotspot</h4>
-                          <p className="text-[9.5px] text-slate-400 mt-0.5">Captain OTP: <strong className="text-amber-400 font-mono">2987</strong></p>
-                        </div>
 
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab('activity')}
-                          className="p-2.5 bg-slate-800 text-white rounded-2xl hover:bg-slate-700 transition"
-                        >
-                          <ChevronRight className="w-4 h-4 text-amber-400" />
-                        </button>
-                      </div>
-                    )}
 
                   </div>
 
@@ -1826,6 +1864,7 @@ export default function App() {
                   addOrderToActivity={addOrderToActivity}
                   walletBalance={wallet.balance}
                   deductWalletCoins={deductWalletCoins}
+                  setActiveTab={setActiveTab}
                 />
               )}
 
@@ -1859,7 +1898,7 @@ export default function App() {
 
               {/* 6. Hotels booking representation */}
               {activeTab === 'stays' && (
-                <StaysModule addOrderToActivity={addOrderToActivity} />
+                <StaysModule addOrderToActivity={addOrderToActivity} userProfile={userProfile} />
               )}
 
               {/* 7. Unified checkout cart representation */}
@@ -1882,6 +1921,8 @@ export default function App() {
                   foodPrefs={preferences.food}
                   martPrefs={preferences.mart}
                   ridePrefs={preferences.rides}
+                  initialQuery={aiInitialQuery}
+                  onClearInitialQuery={() => setAiInitialQuery('')}
                 />
               )}
 
@@ -1903,6 +1944,7 @@ export default function App() {
                   activityList={convertedActivityList}
                   cancelActivity={cancelActivity}
                   onActivityClick={(category) => setActiveTab(category)}
+                  addSupportTicket={addSupportTicket}
                 />
               )}
 
@@ -1943,7 +1985,12 @@ export default function App() {
                     persistFirebaseUpdate(wallet, prefs);
                   }}
                   connectedAccounts={connectedAccounts}
-                  setConnectedAccounts={setConnectedAccounts}
+                  setConnectedAccounts={(accs) => {
+                    setConnectedAccounts(accs);
+                    persistFirebaseUpdate(wallet, preferences, undefined, accs);
+                  }}
+                  currentSelectedLocation={currentSelectedLocation}
+                  setShowLocationSelectorModal={setShowLocationSelectorModal}
                   savedAddresses={savedAddresses}
                   setSavedAddresses={(addrs) => {
                     setSavedAddresses(addrs);
@@ -2063,6 +2110,8 @@ export default function App() {
                         foodPrefs={preferences.food}
                         martPrefs={preferences.mart}
                         ridePrefs={preferences.rides}
+                        initialQuery={aiInitialQuery}
+                        onClearInitialQuery={() => setAiInitialQuery('')}
                       />
                     </div>
                   </motion.div>
@@ -2107,7 +2156,7 @@ export default function App() {
           })}
         </footer>
 
-      </div>
+      </motion.div>
     </div>
   );
 }

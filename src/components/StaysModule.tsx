@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { HOTELS_CATALOG } from '../data';
 import { HotelOption, StayQuery } from '../types';
-import { Bed, Calendar, Users, MapPin, Sparkles, Star, Tag, Info, ShieldCheck, CheckCircle2, ArrowLeft, Check, Compass, CreditCard, Gift, Heart, HelpCircle, Map, Plus, Tv, Wifi, X, ShieldAlert } from 'lucide-react';
+import { Bed, Calendar, Users, MapPin, Sparkles, Star, Tag, Info, ShieldCheck, CheckCircle2, ArrowLeft, Check, Compass, CreditCard, Gift, Heart, HelpCircle, Map, Plus, Tv, Wifi, X, ShieldAlert, SlidersHorizontal } from 'lucide-react';
 import ChaloMapView from './ChaloMapView';
 
 interface StaysModuleProps {
   addOrderToActivity: (order: any) => void;
+  userProfile?: any;
 }
 
-export default function StaysModule({ addOrderToActivity }: StaysModuleProps) {
+export default function StaysModule({ addOrderToActivity, userProfile }: StaysModuleProps) {
   const [destination, setDestination] = useState('Goa');
   const [recentSearches, setRecentSearches] = useState<string[]>(['Goa', 'Jaipur', 'Delhi']);
   const [searchFocused, setSearchFocused] = useState(false);
@@ -34,7 +35,22 @@ export default function StaysModule({ addOrderToActivity }: StaysModuleProps) {
   const [guestName, setGuestName] = useState('Kunal Pareek');
   const [guestEmail, setGuestEmail] = useState('kunal@chalo.app');
   const [guestPhone, setGuestPhone] = useState('+91 99882 10492');
+
+  // Automatically fetch from profile details
+  React.useEffect(() => {
+    if (userProfile) {
+      if (userProfile.name) setGuestName(userProfile.name);
+      if (userProfile.email) setGuestEmail(userProfile.email);
+      if (userProfile.phone) setGuestPhone(userProfile.phone);
+    }
+  }, [userProfile]);
+
   const [specialRequests, setSpecialRequests] = useState('');
+
+  // Stays Filters and Sort options
+  const [staySortBy, setStaySortBy] = useState<'price_asc' | 'price_desc' | 'rating' | 'stars'>('rating');
+  const [stayFilterStars, setStayFilterStars] = useState<string>('All');
+  const [stayFilterPlatform, setStayFilterPlatform] = useState<string>('All');
   
   // Coupon state
   const [couponInputText, setCouponInputText] = useState<string>('');
@@ -177,11 +193,29 @@ export default function StaysModule({ addOrderToActivity }: StaysModuleProps) {
     return (pricePerNight * nights * rooms) + taxes;
   };
 
-  // Filter based on destination search
-  const filteredHotels = HOTELS_CATALOG.filter(hotel =>
-    hotel.name.toLowerCase().includes(destination.toLowerCase()) ||
-    hotel.distance.toLowerCase().includes(destination.toLowerCase())
-  );
+  // Filter and Sort based on destination search, star rating and price ranges
+  const filteredHotels = [...HOTELS_CATALOG].filter(hotel => {
+    const matchesSearch = hotel.name.toLowerCase().includes(destination.toLowerCase()) ||
+      hotel.distance.toLowerCase().includes(destination.toLowerCase());
+    
+    const matchesStars = stayFilterStars === 'All' || hotel.stars === Number(stayFilterStars);
+
+    const matchesPlatform = stayFilterPlatform === 'All' || hotel.comparisons.some(c => 
+      c.platform.toLowerCase().includes(stayFilterPlatform.toLowerCase())
+    );
+
+    return matchesSearch && matchesStars && matchesPlatform;
+  }).sort((a, b) => {
+    const getCheapestPrice = (h: typeof a) => {
+      return Math.min(...h.comparisons.map(c => c.pricePerNight));
+    };
+
+    if (staySortBy === 'price_asc') return getCheapestPrice(a) - getCheapestPrice(b);
+    if (staySortBy === 'price_desc') return getCheapestPrice(b) - getCheapestPrice(a);
+    if (staySortBy === 'rating') return b.rating - a.rating;
+    if (staySortBy === 'stars') return b.stars - a.stars;
+    return 0;
+  });
 
   return (
     <div id="stays_module_container" className="p-4 max-w-6xl mx-auto space-y-6 font-sans text-gray-800">
@@ -327,6 +361,67 @@ export default function StaysModule({ addOrderToActivity }: StaysModuleProps) {
           {/* Scanned Deals list match */}
           {hasSearched && (
             <div className="space-y-4 pt-1">
+              {/* Hotel Filter and Sort Selector Panel */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-750">
+                  <span className="flex items-center space-x-1">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Hotel Sorting & Filters</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-gray-400 font-bold">
+                    Aggregated ({filteredHotels.length} stays found)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {/* Star rating filter */}
+                  <div>
+                    <label className="block text-[8px] text-gray-400 uppercase font-mono font-bold mb-1">Star Class</label>
+                    <select
+                      value={stayFilterStars}
+                      onChange={(e) => setStayFilterStars(e.target.value)}
+                      className="w-full bg-white border border-slate-200 text-xs px-2 py-1.5 rounded-xl text-slate-700 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                    >
+                      <option value="All">All Properties</option>
+                      <option value="3">3 Star Only</option>
+                      <option value="4">4 Star Only</option>
+                      <option value="5">5 Star Luxury Only</option>
+                    </select>
+                  </div>
+
+                  {/* Booking Platform filter */}
+                  <div>
+                    <label className="block text-[8px] text-gray-400 uppercase font-mono font-bold mb-1">Provider Source</label>
+                    <select
+                      value={stayFilterPlatform}
+                      onChange={(e) => setStayFilterPlatform(e.target.value)}
+                      className="w-full bg-white border border-slate-200 text-xs px-2 py-1.5 rounded-xl text-slate-700 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                    >
+                      <option value="All">All Portals</option>
+                      <option value="Agoda">Agoda</option>
+                      <option value="Booking.com">Booking.com</option>
+                      <option value="MakeMyTrip">MakeMyTrip</option>
+                      <option value="Goibibo">Goibibo</option>
+                    </select>
+                  </div>
+
+                  {/* Sort selector */}
+                  <div>
+                    <label className="block text-[8px] text-gray-400 uppercase font-mono font-bold mb-1">Sort hotels by</label>
+                    <select
+                      value={staySortBy}
+                      onChange={(e) => setStaySortBy(e.target.value as any)}
+                      className="w-full bg-indigo-50 border border-indigo-200 text-xs px-2 py-1.5 rounded-xl text-indigo-900 font-black focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                    >
+                      <option value="rating">★ Guest Reviews & Ratings</option>
+                      <option value="price_asc">₹ Price: Low to High</option>
+                      <option value="price_desc">₹ Price: High to Low</option>
+                      <option value="stars">🎖 Star Classification</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               {filteredHotels.map(hotel => {
                 const bookedPlatform = selectedBookings[hotel.id];
                 const sortedQuotes = [...hotel.comparisons].sort((a,b) => a.pricePerNight - b.pricePerNight);
@@ -404,10 +499,15 @@ export default function StaysModule({ addOrderToActivity }: StaysModuleProps) {
                               }`}
                             >
                               <div>
-                                <div className="flex items-center space-x-1.5 font-display font-bold">
+                                <div className="flex flex-wrap items-center gap-1.5 font-display font-bold">
                                   <span className={`text-xs ${isBestVal ? 'text-amber-700' : 'text-gray-800'}`}>{deal.platform}</span>
                                   {isBestVal && (
                                     <span className="text-[8.5px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.2 rounded uppercase font-mono">Cheapest option</span>
+                                  )}
+                                  {deal.platform.toLowerCase().includes("booking") && (
+                                    <span className="text-[8.5px] bg-blue-100 text-blue-700 font-extrabold px-1.5 py-0.2 rounded uppercase font-mono animate-pulse">
+                                      ★ Promoted Partner
+                                    </span>
                                   )}
                                 </div>
                                 <span className="text-[10px] text-gray-400 block font-mono font-medium mt-0.5">Tax: +₹{deal.taxes} | {deal.cancellation}</span>
@@ -523,6 +623,105 @@ export default function StaysModule({ addOrderToActivity }: StaysModuleProps) {
                   <img src={imgUrl} alt="Thumbnail preview" className="w-full h-full object-cover" />
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* 🏨 EXCLUSIVE BOOKING.COM AFFILIATE PROMOTIONAL CORNER */}
+          <div className={`p-5 rounded-3xl border transition-all ${
+            selectedDeal.platform.toLowerCase().includes("booking")
+              ? 'bg-blue-50 border-blue-250 text-blue-950 shadow-xs'
+              : 'bg-indigo-50/40 border-indigo-150 text-indigo-950'
+          }`}>
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-100/50 pb-3">
+                <div className="flex items-center space-x-2">
+                  <span className="text-[10px] bg-blue-600 text-white font-extrabold px-3 py-1 rounded-full uppercase tracking-wider font-mono">
+                    Official Booking.com Partner
+                  </span>
+                  <span className="text-[10px] bg-amber-400 text-slate-950 font-black px-2.5 py-1 rounded-full uppercase tracking-wider font-mono animate-pulse">
+                    Kunal Affiliate Program
+                  </span>
+                </div>
+                <div className="flex items-center space-x-1.5 text-[11px] font-bold text-blue-800">
+                  <span>Referral Fee Tracking Enabled</span>
+                  <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-2 space-y-2">
+                  <h4 className="text-sm font-black uppercase tracking-tight text-slate-900">
+                    {selectedDeal.platform.toLowerCase().includes("booking")
+                      ? "🎉 Booking via Kunal's Affiliate Link active!"
+                      : "💡 Highly Recommended: Switch to Booking.com to support Chalo!"
+                    }
+                  </h4>
+                  <p className="text-[11px] leading-relaxed text-slate-600 font-medium">
+                    {selectedDeal.platform.toLowerCase().includes("booking")
+                      ? "This reservation is securely routed via CJ Affiliate (members.cj.com) under publisher account kunalpareekusa@gmail.com. We have matched live room keys, cancellation terms, and verified that your 12% partner cashback will be processed automatically."
+                      : "You are currently viewing rates from another platform. Switch to Booking.com to route this stay via Kunal's partner portal. Switching keeps the rate low and guarantees priority hotel support!"
+                    }
+                  </p>
+
+                  <div className="pt-2">
+                    <span className="text-[9.5px] uppercase font-mono text-blue-700 tracking-wider font-black block">Exclusive Booking.com Services & Inclusions:</span>
+                    <div className="grid grid-cols-2 gap-2 mt-1.5 text-xs text-slate-700 font-semibold">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-emerald-600">✔</span>
+                        <span>Free High-Speed Wi-Fi (Up to 150 Mbps)</span>
+                      </div>
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-emerald-600">✔</span>
+                        <span>Complimentary Welcome Drink</span>
+                      </div>
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-emerald-600">✔</span>
+                        <span>Late Check-out (Up to 2:00 PM)</span>
+                      </div>
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-emerald-600">✔</span>
+                        <span>Free Room Upgrade (Subject to availability)</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white/80 backdrop-blur-xs p-4 rounded-2xl border border-blue-150 flex flex-col justify-between space-y-3">
+                  <div>
+                    <span className="text-[9px] font-mono font-bold text-gray-400 uppercase tracking-widest block">Live Platform Link</span>
+                    <span className="font-display font-black text-slate-900 text-xs block leading-tight mt-1">Book directly on original website</span>
+                    <p className="text-[9.5px] text-gray-500 font-medium leading-normal mt-0.5">Redirects securely to the verified official Booking.com checkout portal.</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    {!selectedDeal.platform.toLowerCase().includes("booking") && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const bookingDeal = selectedHotel.comparisons.find(c => c.platform.toLowerCase().includes("booking"));
+                          if (bookingDeal) {
+                            setSelectedDeal(bookingDeal);
+                            alert("🔄 Switched comparison quote to Booking.com Affiliate partner deal!");
+                          } else {
+                            alert("Booking.com is currently sold out for this property room class.");
+                          }
+                        }}
+                        className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase rounded-xl tracking-wider transition shadow-sm cursor-pointer text-center"
+                      >
+                        Switch to Booking.com ➜
+                      </button>
+                    )}
+                    <a
+                      href={`https://www.booking.com/searchresults.html?ss=${encodeURIComponent(selectedHotel.name)}&aid=2039203`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-2 bg-slate-900 hover:bg-black text-white text-[10px] font-black uppercase rounded-xl tracking-wider transition block text-center cursor-pointer"
+                    >
+                      Visit Booking.com ↗
+                    </a>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 

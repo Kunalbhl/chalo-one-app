@@ -30,6 +30,10 @@ export default function MartModule({
   };
   const [dietFilter, setDietFilter] = useState<'All' | 'Veg' | 'Non-Veg' | 'Eggetarian'>(getInitialDiet());
 
+  // Additional Filter & Sort states for Mart
+  const [martSortBy, setMartSortBy] = useState<'price_asc' | 'price_desc' | 'speed' | 'default'>('default');
+  const [selectedBrand, setSelectedBrand] = useState<string>('All');
+
   const [savedLists, setSavedLists] = useState<string[]>([
     "Weekly Breakfast Essentials",
     "Monthly Staples Stock",
@@ -45,7 +49,7 @@ export default function MartModule({
     });
   };
 
-  // Handle filter items
+  // Handle filter items with advanced multi-platform sort
   const filteredProducts = MART_ITEMS.filter(item => {
     const matchesSearch = searchQuery.trim() === '' || 
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -56,8 +60,28 @@ export default function MartModule({
     if (dietFilter !== 'All') {
       matchesDiet = item.dietType === dietFilter;
     }
+
+    const matchesBrand = selectedBrand === 'All' || item.brand === selectedBrand;
     
-    return matchesSearch && matchesCat && matchesDiet;
+    return matchesSearch && matchesCat && matchesDiet && matchesBrand;
+  }).sort((a, b) => {
+    // Helpers to find min price and delivery times across platforms
+    const getMinPrice = (item: MartItem) => {
+      const inStockPrices = item.prices.filter(p => p.inStock);
+      if (inStockPrices.length === 0) return 99999;
+      return Math.min(...inStockPrices.map(p => p.discountedPrice));
+    };
+
+    const getMinDelivery = (item: MartItem) => {
+      const inStockPrices = item.prices.filter(p => p.inStock);
+      if (inStockPrices.length === 0) return 99999;
+      return Math.min(...inStockPrices.map(p => p.deliveryTime));
+    };
+
+    if (martSortBy === 'price_asc') return getMinPrice(a) - getMinPrice(b);
+    if (martSortBy === 'price_desc') return getMinPrice(b) - getMinPrice(a);
+    if (martSortBy === 'speed') return getMinDelivery(a) - getMinDelivery(b);
+    return 0; // default
   });
 
   const getQuantItemInCart = (id: string, platform: string) => {
@@ -175,29 +199,62 @@ export default function MartModule({
           ))}
         </div>
 
-        {/* Veg/Non-Veg/Eggetarian Diet Preference Filters */}
-        <div className="bg-gray-50 p-2 rounded-xl border border-gray-150 flex flex-col space-y-1.5">
-          <span className="text-[9px] text-gray-400 font-bold uppercase pl-1 font-mono">Grocery Diet Choice (Def: {defaultFoodType || "Doesn't Matter"})</span>
-          <div className="flex flex-wrap gap-1.5">
-            {[
-              { id: 'Veg', label: '🟢 Pure Veg Only', class: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
-              { id: 'Eggetarian', label: '🟡 Eggetarian Only', class: 'bg-amber-50 border-amber-200 text-amber-800' },
-              { id: 'Non-Veg', label: '🔴 Non-Veg Only', class: 'bg-rose-50 border-rose-200 text-rose-800' },
-              { id: 'All', label: "🍽 Doesn't Matter", class: 'bg-white border-gray-200 text-gray-700 active:bg-gray-200' }
-            ].map(diet => (
-              <button
-                key={diet.id}
-                type="button"
-                onClick={() => setDietFilter(diet.id as any)}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border cursor-pointer transition-all ${
-                  dietFilter === diet.id 
-                    ? 'ring-1 ring-emerald-500 font-black shadow-xs ' + diet.class
-                    : 'bg-white text-gray-500 border-gray-150 hover:bg-gray-50'
-                }`}
+        {/* Advanced Filters & Sort Options */}
+        <div className="bg-gray-50 p-3 rounded-2xl border border-gray-150 space-y-2.5">
+          <div className="flex items-center justify-between text-[10px] font-black uppercase text-gray-500 font-mono pl-1">
+            <span>Filters & Sort Options</span>
+            <span className="text-emerald-700">Instant Commerce</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {/* Diet choice */}
+            <div>
+              <span className="block text-[8px] text-gray-400 font-bold uppercase mb-1">Diet Type</span>
+              <select
+                value={dietFilter}
+                onChange={(e) => setDietFilter(e.target.value as any)}
+                className="w-full bg-white border border-gray-250 text-[10.5px] px-2 py-1.5 rounded-xl text-gray-700 font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
               >
-                {diet.label}
-              </button>
-            ))}
+                <option value="All">🍽 All Diets</option>
+                <option value="Veg">🟢 Pure Veg</option>
+                <option value="Eggetarian">🟡 Eggetarian</option>
+                <option value="Non-Veg">🔴 Non-Veg</option>
+              </select>
+            </div>
+
+            {/* Brand filter */}
+            <div>
+              <span className="block text-[8px] text-gray-400 font-bold uppercase mb-1">Brand Filter</span>
+              <select
+                value={selectedBrand}
+                onChange={(e) => setSelectedBrand(e.target.value)}
+                className="w-full bg-white border border-gray-250 text-[10.5px] px-2 py-1.5 rounded-xl text-gray-700 font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+              >
+                <option value="All">All Brands</option>
+                <option value="Amul">Amul</option>
+                <option value="Harvest Gold">Harvest Gold</option>
+                <option value="Britannia">Britannia</option>
+                <option value="Lay's">Lay's</option>
+                <option value="Haldiram's">Haldiram's</option>
+                <option value="Surf Excel">Surf Excel</option>
+                <option value="Lizol">Lizol</option>
+              </select>
+            </div>
+
+            {/* Sort selector */}
+            <div>
+              <span className="block text-[8px] text-gray-400 font-bold uppercase mb-1">Sort Items By</span>
+              <select
+                value={martSortBy}
+                onChange={(e) => setMartSortBy(e.target.value as any)}
+                className="w-full bg-white border border-gray-250 text-[10.5px] px-2 py-1.5 rounded-xl text-gray-700 font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+              >
+                <option value="default">★ Popularity</option>
+                <option value="price_asc">₹ Price: Low to High</option>
+                <option value="price_desc">₹ Price: High to Low</option>
+                <option value="speed">⚡ Delivery: Fastest first</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>

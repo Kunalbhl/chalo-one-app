@@ -337,17 +337,16 @@ export default function FoodModule({
   const [recentSearches, setRecentSearches] = useState<string[]>(['Biryani', 'Cheese Pizza', 'Garlic Bread']);
   const [searchFocused, setSearchFocused] = useState(false);
   
-  // Diet filter state initialized to 'Non-Veg' only as requested by primary diet preferences
-  const [dietFilter, setDietFilter] = useState<'All' | 'Veg' | 'Non-Veg' | 'Eggetarian'>('Non-Veg');
+  // Diet filter state
+  const [dietFilter, setDietFilter] = useState<'All' | 'Veg' | 'Non-Veg' | 'Eggetarian'>('All');
   const [selectedRestaurant, setSelectedRestaurant] = useState<DetailedRestaurant | null>(null);
 
   // Compare Panel state variables
   const [focusedDishId, setFocusedDishId] = useState<string | null>(null);
 
-  // Always force 'Non-Veg' only as requested
-  useEffect(() => {
-    setDietFilter('Non-Veg');
-  }, []);
+  // Additional Filter and Sort states for Food module
+  const [foodSortBy, setFoodSortBy] = useState<'rating' | 'cost_asc' | 'time'>('rating');
+  const [selectedCuisine, setSelectedCuisine] = useState<string>('All');
 
   const handleSearchSubmit = (val: string) => {
     setSearchQuery(val);
@@ -532,21 +531,70 @@ export default function FoodModule({
             </div>
           </div>
 
-          {/* DIET SELECTION CHIPS FOR MAIN DIRECTORY */}
-          <div className="flex items-center justify-between pb-1">
-            <div className="flex space-x-1.5 overflow-x-auto scrollbar-none items-center">
-              <button
-                type="button"
-                className="px-4 py-1.5 rounded-xl text-[10.5px] font-black transition cursor-default bg-rose-600 text-white shadow-xs flex items-center space-x-1"
-              >
-                <span>🔴 Non-Veg Only</span>
-              </button>
-              <span className="text-[10px] text-slate-400 font-mono italic">Primary diet selection preset to Non-Veg</span>
+          {/* DIET, CUISINE SELECTION, AND SORTING OPTIONS FOR MAIN DIRECTORY */}
+          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+              <span className="flex items-center space-x-1">
+                <SlidersHorizontal className="w-3.5 h-3.5 text-rose-500" />
+                <span>Filters & Sort Options</span>
+              </span>
+              <span className="text-[10px] bg-rose-50 text-rose-600 px-2 py-0.5 rounded-full font-mono font-bold">
+                Multi-Platform Real-time
+              </span>
             </div>
-            
-            <span className="text-[9.5px] text-gray-400 font-mono tracking-tighter">
-              Def: Non-Veg
-            </span>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {/* Diet selection */}
+              <div>
+                <label className="block text-[9px] text-slate-400 uppercase font-mono font-bold mb-1">Diet Preference</label>
+                <div className="flex bg-white rounded-xl border border-slate-200 p-0.5">
+                  {(['All', 'Veg', 'Non-Veg'] as const).map((pref) => (
+                    <button
+                      key={pref}
+                      type="button"
+                      onClick={() => setDietFilter(pref as any)}
+                      className={`flex-1 text-center py-1 text-[10px] font-bold rounded-lg transition cursor-pointer ${
+                        dietFilter === pref
+                          ? 'bg-rose-500 text-white shadow-xs'
+                          : 'text-slate-650 hover:bg-slate-100'
+                      }`}
+                    >
+                      {pref === 'Veg' ? '🟢 Veg' : pref === 'Non-Veg' ? '🔴 Non-Veg' : '🍽️ All'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cuisine selection */}
+              <div>
+                <label className="block text-[9px] text-slate-400 uppercase font-mono font-bold mb-1">Cuisine Type</label>
+                <select
+                  value={selectedCuisine}
+                  onChange={(e) => setSelectedCuisine(e.target.value)}
+                  className="w-full bg-white border border-slate-200 text-[11px] px-2.5 py-1.5 rounded-xl text-slate-700 font-bold focus:outline-none focus:ring-1 focus:ring-rose-500 cursor-pointer"
+                >
+                  <option value="All">All Cuisines</option>
+                  <option value="South Indian">South Indian</option>
+                  <option value="North Indian">North Indian</option>
+                  <option value="Pizza">Pizzas & Fast Food</option>
+                  <option value="Desserts">Sweet Treats & Coffee</option>
+                </select>
+              </div>
+
+              {/* Sort selector */}
+              <div>
+                <label className="block text-[9px] text-slate-400 uppercase font-mono font-bold mb-1">Sort Outlets By</label>
+                <select
+                  value={foodSortBy}
+                  onChange={(e) => setFoodSortBy(e.target.value as any)}
+                  className="w-full bg-white border border-slate-200 text-[11px] px-2.5 py-1.5 rounded-xl text-slate-700 font-bold focus:outline-none focus:ring-1 focus:ring-rose-500 cursor-pointer"
+                >
+                  <option value="rating">★ Highest Ratings</option>
+                  <option value="cost_asc">₹ Price: Low to High</option>
+                  <option value="time">⚡ Delivery: Fastest first</option>
+                </select>
+              </div>
+            </div>
           </div>
 
           {/* LIST OF RESTAURANTS GRID */}
@@ -556,7 +604,7 @@ export default function FoodModule({
               <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 font-mono">Listed Outlets & Kitchens</span>
             </div>
 
-            {DETAILED_RESTAURANTS.filter(outlet => {
+            {[...DETAILED_RESTAURANTS].filter(outlet => {
               // Main page search filter
               if (searchQuery.trim()) {
                 const q = searchQuery.toLowerCase();
@@ -576,7 +624,18 @@ export default function FoodModule({
                 if (!hasMatchingDietItem) return false;
               }
 
+              // Cuisine filter check
+              if (selectedCuisine !== 'All') {
+                const matchesCuisine = outlet.cuisine.toLowerCase().includes(selectedCuisine.toLowerCase());
+                if (!matchesCuisine) return false;
+              }
+
               return true;
+            }).sort((a, b) => {
+              if (foodSortBy === 'rating') return b.rating - a.rating;
+              if (foodSortBy === 'time') return a.deliveryTime - b.deliveryTime;
+              if (foodSortBy === 'cost_asc') return (a.menuCategories[0]?.items[0]?.price || 0) - (b.menuCategories[0]?.items[0]?.price || 0);
+              return 0;
             }).map(outlet => (
               <div
                 key={outlet.name}

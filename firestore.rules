@@ -25,6 +25,14 @@ service cloud.firestore {
       return id is string && id.size() <= 128;
     }
 
+    // Collection: users
+    match /users/{userId} {
+      allow get: if isValidId(userId);
+      allow create: if isValidId(userId);
+      allow update: if isValidId(userId);
+      allow delete: if isSuperAdmin();
+    }
+
     // Collection: affiliates
     match /affiliates/{affiliateId} {
       allow read: if isSuperAdmin() || (isSignedIn() && request.auth.uid == affiliateId);

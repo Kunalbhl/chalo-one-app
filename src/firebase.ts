@@ -1,15 +1,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { initializeAuth, browserLocalPersistence } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
-
-const firebaseConfig = {
-  projectId: "project-04bfa200-a957-4b5f-a54",
-  appId: "1:249278901100:web:c2cc64162cb7923ca56149",
-  apiKey: "AIzaSyCycCOkBHlCiXCvcxtO-sAuj-DmCXVmCqQ",
-  authDomain: "project-04bfa200-a957-4b5f-a54.firebaseapp.com",
-  storageBucket: "project-04bfa200-a957-4b5f-a54.firebasestorage.app",
-  messagingSenderId: "249278901100",
-};
+import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase App
 let app;
@@ -37,7 +29,8 @@ if (app) {
   try {
     db = initializeFirestore(app, {
       experimentalForceLongPolling: true,
-    }, "ai-studio-ac1b9c42-82f4-453a-8482-f67e9cad0e46");
+      useFetchStreams: false,
+    } as any, firebaseConfig.firestoreDatabaseId);
   } catch (e) {
     console.warn("Error initializing Firestore:", e);
   }

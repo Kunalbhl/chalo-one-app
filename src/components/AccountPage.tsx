@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import HelpSupport from './HelpSupport';
+// @ts-ignore
+import appLogo from '../assets/images/logo.png';
 import { 
   UserProfile, 
   AppPreferences, 
@@ -16,6 +18,7 @@ import {
   Settings, 
   Shield, 
   MapPin, 
+  Search, 
   User, 
   Compass, 
   HelpCircle, 
@@ -50,8 +53,27 @@ import {
   RefreshCw,
   Code,
   Copy,
-  Link
+  Link,
+  ArrowUpRight
 } from 'lucide-react';
+
+const MOCK_ADDRESS_SUGGESTIONS = [
+  "Prestige Tech Park, Outer Ring Road, Kadubeesanahalli, Bengaluru, Karnataka 560103",
+  "Indiranagar Double Road, Stage 2, Hoysala Nagar, Bengaluru, Karnataka 560038",
+  "Manyata Tech Park, Hebbal Outer Ring Road, Nagawara, Bengaluru, Karnataka 560045",
+  "Chhatrapati Shivaji Maharaj International Airport, Sahar, Andheri East, Mumbai, Maharashtra 400099",
+  "Bandrakurla Complex (BKC), G Block, Bandra East, Mumbai, Maharashtra 400051",
+  "Connaught Place, Radial Road 1, Block E, New Delhi, Delhi 110001",
+  "Hitec City, Madhapur, Hyderabad, Telangana 500081",
+  "DLF Cyber City, Phase 3, Sector 24, Gurugram, Haryana 122002",
+  "Whitefield Main Road, Pattandur Agrahara, Bengaluru, Karnataka 560066",
+  "Koramangala 4th Block, 80 Feet Road, Bengaluru, Karnataka 560034",
+  "Salt Lake Sector V, Bidhannagar, Kolkata, West Bengal 700091",
+  "Taj Mahal Palace, Apollo Bandar, Colaba, Mumbai, Maharashtra 400001",
+  "UB City, Vittal Mallya Road, D'Souza Layout, Ashok Nagar, Bengaluru, Karnataka 560001",
+  "Noida Electronic City, Sector 62, Noida, Uttar Pradesh 201301",
+  "Cyber Gateway, Hitec City, Hyderabad, Telangana 500081"
+];
 
 interface AccountPageProps {
   userProfile: UserProfile;
@@ -76,6 +98,8 @@ interface AccountPageProps {
   onLogout?: () => void;
   initialSection?: string;
   activities?: any[];
+  currentSelectedLocation?: string;
+  setShowLocationSelectorModal?: (show: boolean) => void;
 }
 
 export default function AccountPage({
@@ -98,12 +122,16 @@ export default function AccountPage({
   redeemPointsToCash,
   onLogout,
   initialSection,
-  activities = []
+  activities = [],
+  currentSelectedLocation,
+  setShowLocationSelectorModal
 }: AccountPageProps) {
   // Navigation inside Account page
   const [activeSection, setActiveSection] = useState<
     'main' | 'linked_accounts' | 'rules_prefs' | 'security_audit' | 'help_support' | 'payments' | 'saved_addresses' | 'edit_profile' | 'founder_affiliate' | 'change_password'
   >('main');
+
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // Change Password States
   const [currentPassword, setCurrentPassword] = useState<string>('');
@@ -203,6 +231,41 @@ export default function AccountPage({
   const [addressLine, setAddressLine] = useState('');
   const [addressLandmark, setAddressLandmark] = useState('');
 
+  // Address autocomplete simulation states
+  const [addressSuggestions, setAddressSuggestions] = useState<string[]>([]);
+  const [isSearchingAddress, setIsSearchingAddress] = useState(false);
+  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false);
+
+  React.useEffect(() => {
+    if (!addressLine.trim()) {
+      setAddressSuggestions([]);
+      setShowAddressSuggestions(false);
+      return;
+    }
+
+    // Only search if the current input doesn't exactly match one of our loaded suggestions
+    // (this avoids infinite triggering when a suggestion is clicked/selected)
+    const exactMatch = MOCK_ADDRESS_SUGGESTIONS.some(addr => addr === addressLine);
+    if (exactMatch) {
+      setShowAddressSuggestions(false);
+      return;
+    }
+
+    setIsSearchingAddress(true);
+    setShowAddressSuggestions(true);
+
+    const delayDebounceFn = setTimeout(() => {
+      const query = addressLine.toLowerCase();
+      const filtered = MOCK_ADDRESS_SUGGESTIONS.filter(addr =>
+        addr.toLowerCase().includes(query)
+      );
+      setAddressSuggestions(filtered);
+      setIsSearchingAddress(false);
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [addressLine]);
+
   // Email Webhooks / API state variables
   const [isSendingWebhookTest, setIsSendingWebhookTest] = useState<boolean>(false);
   const [webhookTestResult, setWebhookTestResult] = useState<any | null>(null);
@@ -283,16 +346,37 @@ export default function AccountPage({
 
   // Payment Management States
   const [txnFilter, setTxnFilter] = useState<'All' | 'Card' | 'Wallet' | 'UPI'>('All');
-  const [savedCards, setSavedCards] = useState([
-    { id: '1', bank: 'HDFC', type: 'Visa credit', number: '•••• •••• •••• 9812', expiry: '12/29' },
-    { id: '2', bank: 'ICICI', type: 'Mastercard debit', number: '•••• •••• •••• 1042', expiry: '04/32' }
-  ]);
-  const [savedUpis, setSavedUpis] = useState([
-    { id: '1', upiId: 'kunal@okhdfcbank', label: 'Primary UPI' }
-  ]);
-  const [savedWallets, setSavedWallets] = useState([
-    { id: '1', name: 'Paytm Wallet', phone: '9876543210', balance: 450.00 }
-  ]);
+  const [savedCards, setSavedCards] = useState(() => {
+    const local = localStorage.getItem('chalo_saved_cards');
+    return local ? JSON.parse(local) : [
+      { id: '1', bank: 'HDFC', type: 'Visa credit', number: '•••• •••• •••• 9812', expiry: '12/29' },
+      { id: '2', bank: 'ICICI', type: 'Mastercard debit', number: '•••• •••• •••• 1042', expiry: '04/32' }
+    ];
+  });
+  const [savedUpis, setSavedUpis] = useState(() => {
+    const local = localStorage.getItem('chalo_saved_upis');
+    return local ? JSON.parse(local) : [
+      { id: '1', upiId: 'kunal@okhdfcbank', label: 'Primary UPI' }
+    ];
+  });
+  const [savedWallets, setSavedWallets] = useState(() => {
+    const local = localStorage.getItem('chalo_saved_wallets');
+    return local ? JSON.parse(local) : [
+      { id: '1', name: 'Paytm Wallet', phone: '9876543210', balance: 450.00 }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('chalo_saved_cards', JSON.stringify(savedCards));
+  }, [savedCards]);
+
+  useEffect(() => {
+    localStorage.setItem('chalo_saved_upis', JSON.stringify(savedUpis));
+  }, [savedUpis]);
+
+  useEffect(() => {
+    localStorage.setItem('chalo_saved_wallets', JSON.stringify(savedWallets));
+  }, [savedWallets]);
 
   // Form Adding Toggle States & Inputs
   const [addingMethodType, setAddingMethodType] = useState<'none' | 'card' | 'upi' | 'wallet'>('none');
@@ -530,6 +614,53 @@ export default function AccountPage({
       {activeSection === 'main' ? (
         <div className="space-y-4 animate-fade-in" id="account_main_menu_group">
           
+          {/* PREMIUM CHALO ONE APP & CURRENT PLACE BANNER */}
+          <div className="bg-slate-900 text-white p-5 rounded-3xl border border-slate-800 shadow-md relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full filter blur-xl opacity-40 -mr-8 -mt-8"></div>
+            
+            <div className="flex items-center space-x-3.5 relative z-10">
+              {/* Circular logo box without white background or blend modes to respect transparent PNG */}
+              <div className="w-12 h-12 flex items-center justify-center overflow-hidden shrink-0">
+                <img 
+                  src={appLogo} 
+                  alt="Chalo One Logo" 
+                  className="w-full h-full object-contain" 
+                  referrerPolicy="no-referrer" 
+                />
+              </div>
+              <div>
+                <h2 className="font-display font-black text-white text-base tracking-tight uppercase leading-none">
+                  Chalo One
+                </h2>
+                <span className="text-[9px] text-amber-400 font-bold uppercase mt-1 block font-mono">
+                  AI Powered One Platform Compare Food, Rides, Stay & Order.
+                </span>
+              </div>
+            </div>
+            
+            {/* Current Place Section */}
+            <div className="flex items-center space-x-2.5 bg-slate-950/60 p-2.5 px-3.5 rounded-2xl border border-slate-800 relative z-10 w-full sm:w-auto max-w-xs">
+              <MapPin className="w-4 h-4 text-amber-400 shrink-0" />
+              <div className="truncate text-left flex-1 min-w-0">
+                <span className="text-[8px] text-amber-500 uppercase font-mono font-black block tracking-wider leading-none mb-0.5">
+                  Current Place
+                </span>
+                <span className="truncate text-slate-100 font-sans text-xs font-black leading-tight block">
+                  {currentSelectedLocation || 'Koramangala, Bangalore'}
+                </span>
+              </div>
+              {setShowLocationSelectorModal && (
+                <button
+                  type="button"
+                  onClick={() => setShowLocationSelectorModal(true)}
+                  className="text-[9px] font-black uppercase text-amber-400 hover:text-amber-500 bg-slate-900 px-2 py-1 rounded-lg border border-slate-800 font-mono tracking-wider shrink-0 cursor-pointer transition-colors ml-2"
+                >
+                  Change
+                </button>
+              )}
+            </div>
+          </div>
+          
           {/* UPPER SIDE: EDIT PROFILE BLOCK */}
           <div className="bg-white p-5 rounded-3xl border border-gray-150 shadow-xs relative overflow-hidden">
             <div className="absolute top-0 right-0 w-24 h-24 bg-amber-50 rounded-full filter blur-xl opacity-50 -mr-6 -mt-6"></div>
@@ -623,7 +754,7 @@ export default function AccountPage({
               ...((userProfile.email.toLowerCase() === 'kunalpareekusa@gmail.com' || userProfile.role === 'super_admin' || userProfile.role === 'affiliate_partner') ? [{
                 id: 'founder_affiliate',
                 title: userProfile.role === 'affiliate_partner' ? '🔌 Affiliate Partner Dashboard' : '👑 Founder Affiliate Program Suite',
-                desc: userProfile.role === 'affiliate_partner' ? 'Sync web booking parameters, get affiliate URLs, and track accrued payout commission' : 'Manage commission rates, affiliate links, and super admin analytics',
+                desc: userProfile.role === 'affiliate_partner' ? 'Sync web booking parameters, get affiliate URLs, and track accrued referral fees' : 'Manage referral fee rates, affiliate links, and super admin analytics',
                 badge: userProfile.role === 'affiliate_partner' ? 'Partner Desk' : 'Super Admin'
               }] : []),
               {
@@ -696,13 +827,7 @@ export default function AccountPage({
             <button
               type="button"
               onClick={() => {
-                if (window.confirm('Are you sure you want to log out of Chalo One?')) {
-                  if (onLogout) {
-                    onLogout();
-                  } else {
-                    alert('Log out action selected.');
-                  }
-                }
+                setShowLogoutConfirm(true);
               }}
               className="w-full py-3.5 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 border border-rose-200 rounded-3xl text-[11px] font-black uppercase tracking-wider flex items-center justify-center space-x-1.5 transition cursor-pointer font-sans"
             >
@@ -738,9 +863,9 @@ export default function AccountPage({
                       alert(`🚀 "${val.toUpperCase()}" is now set as your single preferred rides operator inside Chalo One super comparison search.`);
                     },
                     items: [
-                      { key: 'uber', label: 'Uber Cabs', logo: '🚗', color: 'bg-black text-white', cred: 'uber_kunal_chalo_99@vpa.com', docUrl: 'https://uber.com', linkedSince: 'Linked since: 45 days' },
-                      { key: 'ola', label: 'Ola Credential', logo: '🚕', color: 'bg-yellow-400 text-slate-900 font-black', cred: 'ola_kunal_active_session', docUrl: 'https://olacabs.com', linkedSince: 'Linked since: 12 days' },
-                      { key: 'rapido', label: 'Rapido Bike platform', logo: '🏍', color: 'bg-yellow-300 text-slate-900', cred: '+91 98845 29130 OTP verified', docUrl: 'https://rapido.xyz', linkedSince: 'Linked since: 8 days' }
+                      { key: 'uber', label: 'Uber', logo: '🚗', color: 'bg-black text-white', cred: 'uber_kunal_chalo_99@vpa.com', docUrl: 'https://uber.com', linkedSince: 'Linked since: 45 days' },
+                      { key: 'ola', label: 'Ola', logo: '🚕', color: 'bg-yellow-400 text-slate-900 font-black', cred: 'ola_kunal_active_session', docUrl: 'https://olacabs.com', linkedSince: 'Linked since: 12 days' },
+                      { key: 'rapido', label: 'Rapido', logo: '🏍', color: 'bg-yellow-300 text-slate-900', cred: '+91 98845 29130 OTP verified', docUrl: 'https://rapido.xyz', linkedSince: 'Linked since: 8 days' }
                     ]
                   },
                   {
@@ -752,9 +877,9 @@ export default function AccountPage({
                       alert(`🍔 "${val.toUpperCase()}" is now set as your single preferred food node inside Chalo One comparison searches.`);
                     },
                     items: [
-                      { key: 'zomato', label: 'Zomato Gold', logo: '🔴', color: 'bg-rose-600 text-white', cred: 'zomato_gold_member_223@gmail.com', docUrl: 'https://zomato.com', linkedSince: 'Linked since: 28 days' },
-                      { key: 'swiggy', label: 'Swiggy Meals', logo: '🟠', color: 'bg-orange-500 text-white', cred: 'swiggy_one_plus_kunal@office.in', docUrl: 'https://swiggy.com', linkedSince: 'Linked since: 30 days' },
-                      { key: 'eatsure', label: 'EatSure Direct', logo: '🟣', color: 'bg-[#5e17eb] text-white', cred: 'eatsure_kunal_secure_api', docUrl: 'https://eatsure.com', linkedSince: 'Linked since: 14 days' }
+                      { key: 'zomato', label: 'Zomato', logo: '🔴', color: 'bg-rose-600 text-white', cred: 'zomato_member_223@gmail.com', docUrl: 'https://zomato.com', linkedSince: 'Linked since: 28 days' },
+                      { key: 'swiggy', label: 'Swiggy', logo: '🟠', color: 'bg-orange-500 text-white', cred: 'swiggy_kunal@office.in', docUrl: 'https://swiggy.com', linkedSince: 'Linked since: 30 days' },
+                      { key: 'eatsure', label: 'EatSure', logo: '🟣', color: 'bg-[#5e17eb] text-white', cred: 'eatsure_kunal_secure_api', docUrl: 'https://eatsure.com', linkedSince: 'Linked since: 14 days' }
                     ]
                   },
                   {
@@ -766,8 +891,8 @@ export default function AccountPage({
                       alert(`🛒 "${val.toUpperCase()}" is now set as your single preferred grocery delivery provider.`);
                     },
                     items: [
-                      { key: 'blinkit', label: 'Blinkit Instant', logo: '🟡', color: 'bg-yellow-400 text-slate-950 font-bold', cred: 'blinkit_user_phone_verified', docUrl: 'https://blinkit.com', linkedSince: 'Linked since: 15 days' },
-                      { key: 'zepto', label: 'Zepto Grocery', logo: '🍇', color: 'bg-[#5e17eb]/20 text-indigo-700 font-bold', cred: 'zepto_loyalty_992@chalo.com', docUrl: 'https://zeptonow.com', linkedSince: 'Linked since: 3 days' }
+                      { key: 'blinkit', label: 'Blinkit', logo: '🟡', color: 'bg-yellow-400 text-slate-950 font-bold', cred: 'blinkit_user_phone_verified', docUrl: 'https://blinkit.com', linkedSince: 'Linked since: 15 days' },
+                      { key: 'zepto', label: 'Zepto', logo: '🍇', color: 'bg-[#5e17eb]/20 text-indigo-700 font-bold', cred: 'zepto_loyalty_992@chalo.com', docUrl: 'https://zeptonow.com', linkedSince: 'Linked since: 35 days' }
                     ]
                   },
                   {
@@ -779,8 +904,8 @@ export default function AccountPage({
                       alert(`🏨 "${val.toUpperCase()}" is now set as your default holiday hotel provider.`);
                     },
                     items: [
-                      { key: 'makemytrip', label: 'MakeMyTrip Premium', logo: '✈', color: 'bg-blue-600 text-white', cred: 'mmt_elite_kunal_member', docUrl: 'https://makemytrip.com', linkedSince: 'Linked since: 62 days' },
-                      { key: 'agoda', label: 'Agoda Rooms', logo: '🏩', color: 'bg-[#ff3b30]/10 text-[#ff3b30] font-black', cred: 'agoda_direct_chalo_oauth', docUrl: 'https://agoda.com', linkedSince: 'Linked since: 5 days' },
+                      { key: 'makemytrip', label: 'MakeMyTrip', logo: '✈', color: 'bg-blue-600 text-white', cred: 'mmt_kunal_member', docUrl: 'https://makemytrip.com', linkedSince: 'Linked since: 62 days' },
+                      { key: 'agoda', label: 'Agoda', logo: '🏩', color: 'bg-[#ff3b30]/10 text-[#ff3b30] font-black', cred: 'agoda_chalo_oauth', docUrl: 'https://agoda.com', linkedSince: 'Linked since: 5 days' },
                       { key: 'booking', label: 'Booking.com', logo: '🔵', color: 'bg-blue-800 text-white', cred: 'booking_com_kunal_active_oauth', docUrl: 'https://booking.com', linkedSince: 'Linked since: 11 days' }
                     ]
                   }
@@ -876,12 +1001,11 @@ export default function AccountPage({
                                 type="button"
                                 onClick={() => {
                                   if (isLinked) {
-                                    if (window.confirm(`Are you sure you want to unlink your "${item.label}" account from Chalo One?`)) {
-                                      setConnectedAccounts({
-                                        ...connectedAccounts,
-                                        [item.key]: false
-                                      });
-                                    }
+                                    setConnectedAccounts({
+                                      ...connectedAccounts,
+                                      [item.key]: false
+                                    });
+                                    alert(`🎉 Successfully unlinked your "${item.label}" account!`);
                                   } else {
                                     setLinkingItem(item);
                                     setIsReLoginCheck(false);
@@ -890,7 +1014,7 @@ export default function AccountPage({
                                 className={`text-[9.5px] font-black px-3.5 py-1.5 rounded-xl border transition cursor-pointer uppercase tracking-tight ${
                                   isLinked 
                                     ? 'bg-rose-50 border-rose-150 text-rose-600 hover:bg-rose-100' 
-                                    : 'bg-emerald-500 border-emerald-600 hover:bg-emerald-600 text-white animate-pulse'
+                                    : 'bg-emerald-500 border-emerald-600 hover:bg-emerald-600 text-white'
                                 }`}
                               >
                                 {isLinked ? 'Unlink' : 'Link'}
@@ -2140,14 +2264,95 @@ export default function AccountPage({
                   </div>
 
                   <div className="grid grid-cols-1 gap-2">
-                    <input
-                      type="text"
-                      value={addressLine}
-                      onChange={(e) => setAddressLine(e.target.value)}
-                      placeholder="Address details (e.g. Prestige Tech Park, Bangalore)"
-                      className="bg-gray-50 border border-gray-150 p-2.5 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-amber-500"
-                      required
-                    />
+                    <div className="relative">
+                      <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
+                        {isSearchingAddress ? (
+                          <span className="w-3.5 h-3.5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin block"></span>
+                        ) : (
+                          <Search className="w-3.5 h-3.5" />
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        value={addressLine}
+                        onChange={(e) => setAddressLine(e.target.value)}
+                        onFocus={() => {
+                          if (addressLine.trim()) {
+                            setShowAddressSuggestions(true);
+                          }
+                        }}
+                        onBlur={() => {
+                          // Tiny delay to allow option click to register
+                          setTimeout(() => {
+                            setShowAddressSuggestions(false);
+                          }, 250);
+                        }}
+                        placeholder="Address details (e.g. Prestige Tech Park, Bangalore)"
+                        className="bg-gray-50 border border-gray-150 pl-10 pr-2.5 py-2.5 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-amber-500 w-full"
+                        required
+                      />
+
+                      {/* Autocomplete suggestions dropdown */}
+                      {showAddressSuggestions && (
+                        <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden max-h-56 overflow-y-auto">
+                          <div className="bg-slate-50 px-3 py-1.5 border-b border-gray-100 flex items-center justify-between text-[9px] font-mono font-bold tracking-tight text-slate-400">
+                            <span>MAPPED AUTO-COMPLETE RESULTS</span>
+                            {isSearchingAddress ? (
+                              <span className="text-amber-500 animate-pulse">SEARCHING MAPS API...</span>
+                            ) : (
+                              <span>{addressSuggestions.length} FOUND</span>
+                            )}
+                          </div>
+                          {addressSuggestions.length === 0 ? (
+                            <div className="p-4 text-center text-xs text-gray-400 italic">
+                              {isSearchingAddress ? (
+                                "Fetching suggestions..."
+                              ) : (
+                                <>
+                                  No exact match found.
+                                  <span className="block text-[10px] text-gray-400 mt-1 not-italic font-sans">
+                                    You can still click "Add Hotspot Address" to save this custom spot.
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="divide-y divide-gray-100">
+                              {addressSuggestions.map((suggestion, index) => {
+                                const parts = suggestion.split(',');
+                                const title = parts[0];
+                                const subtitle = parts.slice(1).join(',').trim();
+                                return (
+                                  <button
+                                    key={index}
+                                    type="button"
+                                    onClick={() => {
+                                      setAddressLine(suggestion);
+                                      setShowAddressSuggestions(false);
+                                    }}
+                                    className="w-full text-left px-3 py-2.5 hover:bg-amber-50/50 transition flex items-start space-x-2 text-xs text-slate-750 font-medium"
+                                  >
+                                    <MapPin className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                                    <div className="overflow-hidden">
+                                      <span className="block text-slate-800 font-bold leading-tight truncate">
+                                        {title}
+                                      </span>
+                                      <span className="block text-[10px] text-gray-400 truncate mt-0.5">
+                                        {subtitle}
+                                      </span>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                          <div className="p-2 bg-amber-50/40 border-t border-gray-100 text-[8.5px] font-medium text-slate-400 text-center uppercase tracking-wider">
+                            🚀 Powered by Chalo Super-Geo API
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <input
                       type="text"
                       value={addressLandmark}
@@ -2358,7 +2563,7 @@ export default function AccountPage({
                   </h3>
                   <p className="text-xs text-slate-400">
                     {userProfile.role === 'super_admin' 
-                      ? 'Configure commission payouts, register/manage integration platforms, and track deep analytics.' 
+                      ? 'Configure referral fee payouts, register/manage integration platforms, and track deep analytics.' 
                       : 'Track web traffic logs, generate custom campaign referral URLs, and sync payout api parameters.'}
                   </p>
                 </div>
@@ -2470,7 +2675,7 @@ export default function AccountPage({
                                 <th className="p-3">Hotel Destination</th>
                                 <th className="p-3">Guest Name</th>
                                 <th className="p-3">Value</th>
-                                <th className="p-3">Comm (12%)</th>
+                                <th className="p-3">Fees (12%)</th>
                                 <th className="p-3">CJ Sync Status</th>
                               </tr>
                             </thead>
@@ -2501,8 +2706,8 @@ export default function AccountPage({
                   <div className="bg-slate-850 p-5 rounded-2xl border border-slate-800 space-y-4">
                     <div className="flex justify-between items-center">
                       <div>
-                        <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">Global Commission Payout Rate</h4>
-                        <p className="text-[10.5px] text-slate-400">Controls the active default referral commission on booking transactions.</p>
+                        <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">Global Referral Fee Payout Rate</h4>
+                        <p className="text-[10.5px] text-slate-400">Controls the active default referral fees on booking transactions.</p>
                       </div>
                       <span className="text-xl font-mono font-black text-white bg-slate-900 border border-slate-750 px-3 py-1 rounded-lg">
                         {globalCommissionRate}%
@@ -2745,7 +2950,7 @@ export default function AccountPage({
                     <div className="flex justify-between items-center pb-2 border-b border-slate-800">
                       <div>
                         <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">Active Affiliate Partners Directory</h4>
-                        <p className="text-[10.5px] text-slate-400">Currently registered platform networks earning referral commissions on Chalo One.</p>
+                        <p className="text-[10.5px] text-slate-400">Currently registered platform networks earning referral fees on Chalo One.</p>
                       </div>
                       <button
                         type="button"
@@ -3110,7 +3315,7 @@ export default function AccountPage({
                   <div className="bg-gradient-to-r from-amber-450/10 to-amber-500/5 p-5 rounded-2xl border border-amber-500/15 flex items-center justify-between">
                     <div>
                       <h4 className="text-sm font-black text-amber-400">Welcome, {userProfile.affiliateDetails?.companyName || userProfile.name}!</h4>
-                      <p className="text-xs text-slate-400 mt-1">Your website integration with <span className="text-white font-bold">{userProfile.affiliateDetails?.domain || 'chaloone.com'}</span> is active. Start earning commission!</p>
+                      <p className="text-xs text-slate-400 mt-1">Your website integration with <span className="text-white font-bold">{userProfile.affiliateDetails?.domain || 'chaloone.com'}</span> is active. Start earning referral fees!</p>
                     </div>
                     <span className="bg-amber-400/10 border border-amber-400/20 text-amber-400 text-[10px] font-mono font-bold px-2.5 py-1 rounded-lg">
                       API: ACTIVE
@@ -3121,8 +3326,8 @@ export default function AccountPage({
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {[
                       { label: "My Traffic Clicks", val: `${(userProfile.affiliateDetails?.clicks || 1420).toLocaleString()} clicks`, pct: "Synced 1m ago", color: "text-slate-300" },
-                      { label: "Commission Bookings", val: `${userProfile.affiliateDetails?.conversions || 184} sales`, pct: `${((userProfile.affiliateDetails?.conversions || 184) / (userProfile.affiliateDetails?.clicks || 1420) * 100).toFixed(1)}% Conv. Rate`, color: "text-amber-400" },
-                      { label: "Commission rate", val: `${userProfile.affiliateDetails?.commissionRate || 12}%`, pct: "VIP tier tiering", color: "text-blue-400" },
+                      { label: "Referral Bookings", val: `${userProfile.affiliateDetails?.conversions || 184} sales`, pct: `${((userProfile.affiliateDetails?.conversions || 184) / (userProfile.affiliateDetails?.clicks || 1420) * 100).toFixed(1)}% Conv. Rate`, color: "text-amber-400" },
+                      { label: "Referral fee rate", val: `${userProfile.affiliateDetails?.commissionRate || 12}%`, pct: "VIP tier tiering", color: "text-blue-400" },
                       { label: "Accrued Revenue", val: `₹${(userProfile.affiliateDetails?.revenue || 9200.00).toLocaleString()}`, pct: "Clearance: 1st of month", color: "text-emerald-400 font-extrabold" }
                     ].map((st, i) => (
                       <div key={i} className="bg-slate-850 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between">
@@ -3398,6 +3603,19 @@ export default function AccountPage({
                   </div>
                 </div>
 
+                <div className="flex items-center justify-between text-[11px] bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                  <span className="text-gray-500 font-medium font-sans">Original Platform:</span>
+                  <a 
+                    href={linkingItem.docUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="text-indigo-600 hover:underline font-black flex items-center space-x-1"
+                  >
+                    <span>Visit {linkingItem.label}</span>
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+
                 <div className="flex gap-2 pt-2">
                   <button
                     type="submit"
@@ -3420,6 +3638,44 @@ export default function AccountPage({
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 🚪 LOG OUT CONFIRMATION MODAL */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full border border-gray-150 shadow-2xl space-y-4 animate-fade-in text-center">
+            <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto text-xl">
+              🚪
+            </div>
+            <div className="space-y-1">
+              <h3 className="font-display font-black text-slate-900 text-sm uppercase tracking-tight">Confirm Sign Out</h3>
+              <p className="text-xs text-gray-500">
+                Are you sure you want to sign out and lock your Chalo One wallet & linked accounts?
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowLogoutConfirm(false)}
+                className="py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLogoutConfirm(false);
+                  if (onLogout) {
+                    onLogout();
+                  }
+                }}
+                className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-sm"
+              >
+                Yes, Sign Out
+              </button>
+            </div>
           </div>
         </div>
       )}

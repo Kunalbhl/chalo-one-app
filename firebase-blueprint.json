@@ -63,9 +63,29 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id"]
+    },
+    "User": {
+      "title": "User Account Profile",
+      "description": "Secure record of user details, wallet points, preferences and secure password",
+      "type": "object",
+      "properties": {
+        "profile": { "type": "object" },
+        "wallet": { "type": "object" },
+        "preferences": { "type": "object" },
+        "addresses": { "type": "array" },
+        "securityAuditLogs": { "type": "array" },
+        "password": { "type": "string" },
+        "databaseSecret": { "type": "string" },
+        "lastSyncedAt": { "type": "string" }
+      },
+      "required": ["password"]
     }
   },
   "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Registered consumer accounts and credentials"
+    },
     "/affiliates/{affiliateId}": {
       "schema": "Affiliate",
       "description": "Registered and authorized affiliate profiles"
