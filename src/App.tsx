@@ -58,12 +58,41 @@ import {
   Menu,
   Ticket,
   Car,
-  Bot
+  Bot,
+  ArrowLeft,
+  ArrowRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<string>('home');
+  const [activeTab, setActiveTabRaw] = useState<string>('home');
+  const [tabHistory, setTabHistory] = useState<string[]>([]);
+
+  const setActiveTab = (tab: string | ((prev: string) => string)) => {
+    setActiveTabRaw(current => {
+      const nextTab = typeof tab === 'function' ? tab(current) : tab;
+      if (nextTab !== current) {
+        setTabHistory(prev => {
+          if (prev[prev.length - 1] === current) return prev;
+          return [...prev, current];
+        });
+      }
+      return nextTab;
+    });
+  };
+
+  const handleGoBack = () => {
+    if (tabHistory.length > 0) {
+      const copy = [...tabHistory];
+      const previous = copy.pop();
+      setTabHistory(copy);
+      if (previous) {
+        setActiveTabRaw(previous);
+      }
+    } else {
+      setActiveTabRaw('home');
+    }
+  };
   const [aiInitialQuery, setAiInitialQuery] = useState<string>('');
   const [accountInitialSection, setAccountInitialSection] = useState<string>('main');
   const [showFloatingChat, setShowFloatingChat] = useState<boolean>(false);
@@ -287,6 +316,67 @@ export default function App() {
     }
   }, [preferences.biometricsEnabled, appMounted]);
 
+  // Auto-fetch current GPS location on first session load/reload
+  useEffect(() => {
+    if (isLoggedIn && sessionStorage.getItem('chalo_gps_auto_fetched') !== 'true') {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            
+            if (window.google && window.google.maps && window.google.maps.Geocoder) {
+              const geocoder = new window.google.maps.Geocoder();
+              geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+                if (status === 'OK' && results && results[0]) {
+                  const resolved = results[0].formatted_address;
+                  setCurrentSelectedLocation(resolved);
+                  setGpsResolvedAddress(resolved);
+                  setGpsCoordinates(`Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`);
+                  sessionStorage.setItem('chalo_gps_auto_fetched', 'true');
+                } else {
+                  const fallbackAdd = `GPS Sourced: Sector 15, Gurgaon (Coords: ${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+                  setCurrentSelectedLocation(fallbackAdd);
+                  setGpsResolvedAddress(fallbackAdd);
+                  sessionStorage.setItem('chalo_gps_auto_fetched', 'true');
+                }
+              });
+            } else {
+              fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+                .then(res => res.json())
+                .then(data => {
+                  const resolved = data && data.display_name ? data.display_name : `Sourced GPS: Sector 6, Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`;
+                  setCurrentSelectedLocation(resolved);
+                  setGpsResolvedAddress(resolved);
+                  setGpsCoordinates(`Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`);
+                  sessionStorage.setItem('chalo_gps_auto_fetched', 'true');
+                })
+                .catch(() => {
+                  const fallbackAdd = `Sourced GPS: Sector 6, Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`;
+                  setCurrentSelectedLocation(fallbackAdd);
+                  setGpsResolvedAddress(fallbackAdd);
+                  sessionStorage.setItem('chalo_gps_auto_fetched', 'true');
+                });
+            }
+          },
+          (error) => {
+            console.warn("Auto startup GPS failed, using smart default office address", error);
+            const fallbackAdd = "Chalo One Tech Office, RMZ Ecospace Outer Ring Road, Bengaluru, Karnataka 560103";
+            setCurrentSelectedLocation(fallbackAdd);
+            setGpsResolvedAddress(fallbackAdd);
+            setGpsCoordinates("Lat: 12.93524, Lng: 77.62451");
+            sessionStorage.setItem('chalo_gps_auto_fetched', 'true');
+          },
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
+      } else {
+        const fallbackAdd = "Koramangala 4th Block, Bengaluru, Karnataka 560034";
+        setCurrentSelectedLocation(fallbackAdd);
+        sessionStorage.setItem('chalo_gps_auto_fetched', 'true');
+      }
+    }
+  }, [isLoggedIn]);
+
   // Synchronize and refresh referral codes of legacy users to the new format
   useEffect(() => {
     if (isLoggedIn && userProfile) {
@@ -342,32 +432,19 @@ export default function App() {
   // 4. Integrations switches
   const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccounts>({
     ola: false,
-    uber: true,
-    rapido: true,
-    swiggy: true,
+    uber: false,
+    rapido: false,
+    swiggy: false,
     zomato: false,
-    blinkit: true,
-    zepto: true,
-    booking: true,
+    blinkit: false,
+    zepto: false,
+    booking: false,
     agoda: false,
     makemytrip: false
   });
 
   // 5. Saved frequently pickup drop hotspots
-  const [savedAddresses, setSavedAddresses] = useState<Address[]>([
-    {
-      id: 'ADDR-1',
-      label: 'Home',
-      addressLine: 'Block 4B, Koramangala, Bangalore',
-      landmark: 'Near Sony World Signal'
-    },
-    {
-      id: 'ADDR-2',
-      label: 'Work',
-      addressLine: 'RMZ Ecospace, Outer Ring Road, Bangalore',
-      landmark: 'Prerana Motors Lane'
-    }
-  ]);
+  const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
 
   // 6. Unified shopping basket cart state
   const [cart, setCart] = useState<UnifiedCartType>({
@@ -1176,7 +1253,19 @@ export default function App() {
         {/* PREMIUM GLOBAL HEADER BAR */}
         <header className="sticky top-0 z-30 bg-slate-900 text-white px-4 py-3 flex flex-col space-y-2.5 shadow-md">
           <div className="flex items-center justify-between w-full">
-            <div className="flex items-center space-x-2.5 cursor-pointer select-none" onClick={() => setActiveTab('home')}>
+            <div className="flex items-center space-x-2.5">
+              {activeTab !== 'home' && (
+                <button
+                  type="button"
+                  id="header-go-back-btn"
+                  onClick={handleGoBack}
+                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 rounded-xl flex items-center justify-center transition border border-slate-700 cursor-pointer mr-1"
+                  title="Go back to the previous screen"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5 animate-pulse" />
+                </button>
+              )}
+              <div className="flex items-center space-x-2.5 cursor-pointer select-none" onClick={() => setActiveTab('home')}>
               {/* Logo container styled for a transparent PNG logo without a white background */}
               <div className="w-8 h-8 flex items-center justify-center overflow-hidden shrink-0">
                 <img 
@@ -1191,6 +1280,7 @@ export default function App() {
                 <span className="text-[8px] text-amber-400 font-bold uppercase mt-1 block font-mono">AI Powered One Platform Compare Food, Rides, Stay & Order.</span>
               </div>
             </div>
+          </div>
 
             <div className="flex items-center space-x-3.5">
               {/* CURRENT LOCATION HEADER TAB */}
@@ -1865,12 +1955,20 @@ export default function App() {
                   walletBalance={wallet.balance}
                   deductWalletCoins={deductWalletCoins}
                   setActiveTab={setActiveTab}
+                  connectedAccounts={connectedAccounts}
+                  currentSelectedLocation={currentSelectedLocation}
                 />
               )}
 
               {/* 3. Intercity travels representation */}
               {activeTab === 'intercity' && (
-                <IntercityModule addOrderToActivity={addOrderToActivity} />
+                <IntercityModule 
+                  addOrderToActivity={addOrderToActivity} 
+                  setActiveTab={setActiveTab}
+                  connectedAccounts={connectedAccounts}
+                  currentSelectedLocation={currentSelectedLocation}
+                  preferenceMode={preferences.preferenceMode}
+                />
               )}
 
               {/* 4. Food comparisons representation */}
@@ -1882,6 +1980,9 @@ export default function App() {
                   preferenceMode={preferences.preferenceMode}
                   defaultFoodOrder={preferences.food}
                   defaultFoodType={preferences.defaultFoodType}
+                  setActiveTab={setActiveTab}
+                  connectedAccounts={connectedAccounts}
+                  currentSelectedLocation={currentSelectedLocation}
                 />
               )}
 
@@ -1893,12 +1994,22 @@ export default function App() {
                   removeMartFromCart={removeMartFromCart}
                   preferenceMode={preferences.preferenceMode}
                   defaultFoodType={preferences.defaultFoodType}
+                  setActiveTab={setActiveTab}
+                  connectedAccounts={connectedAccounts}
+                  currentSelectedLocation={currentSelectedLocation}
                 />
               )}
 
               {/* 6. Hotels booking representation */}
               {activeTab === 'stays' && (
-                <StaysModule addOrderToActivity={addOrderToActivity} userProfile={userProfile} />
+                <StaysModule 
+                  addOrderToActivity={addOrderToActivity} 
+                  userProfile={userProfile} 
+                  setActiveTab={setActiveTab}
+                  connectedAccounts={connectedAccounts}
+                  currentSelectedLocation={currentSelectedLocation}
+                  preferenceMode={preferences.preferenceMode}
+                />
               )}
 
               {/* 7. Unified checkout cart representation */}
@@ -1923,6 +2034,7 @@ export default function App() {
                   ridePrefs={preferences.rides}
                   initialQuery={aiInitialQuery}
                   onClearInitialQuery={() => setAiInitialQuery('')}
+                  setActiveTab={setActiveTab}
                 />
               )}
 
@@ -2112,6 +2224,8 @@ export default function App() {
                         ridePrefs={preferences.rides}
                         initialQuery={aiInitialQuery}
                         onClearInitialQuery={() => setAiInitialQuery('')}
+                        setActiveTab={setActiveTab}
+                        onCloseFloatingChat={() => setShowFloatingChat(false)}
                       />
                     </div>
                   </motion.div>

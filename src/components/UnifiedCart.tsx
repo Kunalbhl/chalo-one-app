@@ -21,40 +21,104 @@ export default function UnifiedCart({
   deductWalletCoins,
   addOrderToActivity
 }: UnifiedCartProps) {
-  const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'wallet' | 'bnpl'>('upi');
+  const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'wallet' | 'bnpl' | 'cod'>('upi');
   const [promoCode, setPromoCode] = useState('');
   const [discountApplied, setDiscountApplied] = useState(0);
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [splitBreakdown, setSplitBreakdown] = useState<any[]>([]);
   const [checkedOutputSnapshot, setCheckedOutputSnapshot] = useState<any>(null);
 
+  // Card input states
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardHolder, setCardHolder] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
+  const [saveCardCheckbox, setSaveCardCheckbox] = useState(true);
+
+  // UPI input states
+  const [upiId, setUpiId] = useState('');
+  const [upiLabel, setUpiLabel] = useState('');
+  const [saveUpiCheckbox, setSaveUpiCheckbox] = useState(true);
+
   // Razorpay Gateway integration states
   const [showRazorpay, setShowRazorpay] = useState(false);
   const [razorpayLoading, setRazorpayLoading] = useState(false);
   const [razorpaySuccessState, setRazorpaySuccessState] = useState(false);
 
-  const calculateSubtotal = () => {
-    let total = 0;
-    // Food subtotals
+  const getPlatformBreakdowns = () => {
+    const breakdowns: { [platform: string]: {
+      items: { name: string; qty: number; price: number }[];
+      deliveryFee: number;
+      taxes: number;
+      total: number;
+    }} = {};
+
+    // 1. Food items
     cart.foodItems.forEach(fi => {
-      const netUnit = fi.item.price + fi.item.deliveryFee - fi.item.discount;
-      total += netUnit * fi.quantity;
+      const p = fi.item.platform;
+      if (!breakdowns[p]) {
+        breakdowns[p] = { items: [], deliveryFee: 0, taxes: 0, total: 0 };
+      }
+      const itemPrice = fi.item.price - fi.item.discount;
+      breakdowns[p].items.push({
+        name: fi.item.name,
+        qty: fi.quantity,
+        price: itemPrice * fi.quantity
+      });
+      breakdowns[p].deliveryFee += fi.item.deliveryFee * fi.quantity;
+      breakdowns[p].taxes += Math.round(itemPrice * fi.quantity * 0.05); // 5% GST
     });
-    // Mart subtotals
+
+    // 2. Mart items
     cart.martItems.forEach(mi => {
-      const quote = mi.item.prices.find(p => p.platform === mi.platform);
+      const p = mi.platform;
+      if (!breakdowns[p]) {
+        breakdowns[p] = { items: [], deliveryFee: 0, taxes: 0, total: 0 };
+      }
+      const quote = mi.item.prices.find(pq => pq.platform === mi.platform);
       if (quote) {
-        total += quote.discountedPrice * mi.quantity;
+        breakdowns[p].items.push({
+          name: mi.item.name,
+          qty: mi.quantity,
+          price: quote.discountedPrice * mi.quantity
+        });
+        breakdowns[p].deliveryFee = 25; // Standard Mart delivery fee
+        breakdowns[p].taxes += Math.round(quote.discountedPrice * mi.quantity * 0.18); // 18% GST
       }
     });
-    // Stays subtotals
+
+    // 3. Stays
     if (cart.stayBooking) {
-      const deal = cart.stayBooking.hotel.comparisons.find(c => c.platform === cart.stayBooking?.platform);
+      const p = cart.stayBooking.platform;
+      if (!breakdowns[p]) {
+        breakdowns[p] = { items: [], deliveryFee: 0, taxes: 0, total: 0 };
+      }
+      const deal = cart.stayBooking.hotel.comparisons.find(c => c.platform === p);
       if (deal) {
-        total += (deal.pricePerNight * cart.stayBooking.totalNights * (cart.stayBooking.query.rooms || 1)) + deal.taxes;
+        const stayPrice = deal.pricePerNight * cart.stayBooking.totalNights * (cart.stayBooking.query.rooms || 1);
+        breakdowns[p].items.push({
+          name: `${cart.stayBooking.hotel.name} (${cart.stayBooking.totalNights} Nights)`,
+          qty: 1,
+          price: stayPrice
+        });
+        breakdowns[p].deliveryFee = 0;
+        breakdowns[p].taxes = deal.taxes;
       }
     }
-    return total;
+
+    // Calculate total per platform
+    Object.keys(breakdowns).forEach(p => {
+      const b = breakdowns[p];
+      const itemsTotal = b.items.reduce((sum, item) => sum + item.price, 0);
+      b.total = itemsTotal + b.deliveryFee + b.taxes;
+    });
+
+    return breakdowns;
+  };
+
+  const calculateSubtotal = () => {
+    const bds = getPlatformBreakdowns();
+    return Object.values(bds).reduce((sum, b) => sum + b.total, 0);
   };
 
   const handleApplyPromo = () => {
@@ -474,6 +538,37 @@ export default function UnifiedCart({
               )}
             </div>
 
+            {/* Platform-wise Detailed Cost Breakdown */}
+            <div className="bg-white rounded-2xl border border-gray-150 p-4 space-y-3 shadow-xs">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-0.5">Platform-wise Billing Breakdown</span>
+              <div className="space-y-3.5">
+                {Object.entries(getPlatformBreakdowns()).map(([platformName, b]) => (
+                  <div key={platformName} className="bg-slate-50 border border-gray-150 rounded-xl p-3 space-y-2">
+                    <div className="flex items-center justify-between pb-1.5 border-b border-gray-200">
+                      <span className="text-xs font-black text-slate-800 uppercase tracking-wider">{platformName}</span>
+                      <span className="text-xs font-black text-indigo-700 font-mono">Platform Total: ₹{b.total}</span>
+                    </div>
+                    <div className="space-y-1 text-[11px] text-gray-600 font-medium">
+                      {b.items.map((it, idx) => (
+                        <div key={idx} className="flex justify-between">
+                          <span className="truncate max-w-[70%]">{it.name} (x{it.qty})</span>
+                          <span className="font-mono">₹{it.price}</span>
+                        </div>
+                      ))}
+                      <div className="flex justify-between text-gray-400 font-normal">
+                        <span>Delivery & Platform Fee</span>
+                        <span className="font-mono">₹{b.deliveryFee}</span>
+                      </div>
+                      <div className="flex justify-between text-gray-400 font-normal">
+                        <span>Taxes & GST (Escrow compliance)</span>
+                        <span className="font-mono">₹{b.taxes}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* Payment Systems interface */}
             <div className="bg-white rounded-2xl border border-gray-150 p-4 space-y-3.5 shadow-xs">
               <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-0.5">Select Settlement Method</span>
@@ -523,6 +618,17 @@ export default function UnifiedCart({
                 >
                   <span className="text-xs">Chalo One Pay Later</span>
                   <span className="text-[9px] text-gray-400 font-mono mt-1 font-semibold">0% interest / 15-day cycle</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('cod')}
+                  className={`p-3 rounded-xl border font-bold flex flex-col justify-between items-start transition text-left cursor-pointer col-span-2 ${
+                    paymentMethod === 'cod' ? 'bg-indigo-50/70 border-indigo-500 text-indigo-950' : 'bg-white border-gray-150 text-gray-600'
+                  }`}
+                >
+                  <span className="text-xs">💵 Cash On Delivery (COD)</span>
+                  <span className="text-[9px] text-gray-400 font-mono mt-1 font-semibold">Pay in cash or UPI at your doorstep</span>
                 </button>
               </div>
             </div>
@@ -624,67 +730,184 @@ export default function UnifiedCart({
         </div>
       )}
 
-      {/* RAZORPAY GATEWAY SIMULATION MODAL OVERLAY */}
+      {/* DYNAMIC PAYMENT SIMULATION MODAL OVERLAY */}
       {showRazorpay && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[9999] p-4 text-xs font-sans">
           <div className="bg-white rounded-3xl max-w-sm w-full overflow-hidden shadow-2xl border border-indigo-100 flex flex-col animate-in fade-in zoom-in-95 duration-200">
-            {/* Header with Razorpay Logo branding */}
-            <div className="bg-[#111827] p-4.5 text-white flex justify-between items-center">
+            {/* Header dynamically styled based on Payment Method */}
+            <div className={`p-4.5 text-white flex justify-between items-center ${
+              paymentMethod === 'cod' ? 'bg-[#0f172a]' :
+              paymentMethod === 'wallet' ? 'bg-[#b45309]' :
+              paymentMethod === 'bnpl' ? 'bg-[#1e1b4b]' : 'bg-[#111827]'
+            }`}>
               <div className="space-y-0.5">
-                <span className="text-[10px] text-indigo-300 font-mono font-bold tracking-widest block uppercase">Secure payment</span>
+                <span className="text-[10px] text-indigo-200 font-mono font-bold tracking-widest block uppercase">Secure Gateway</span>
                 <div className="flex items-center space-x-1.5">
-                  <span className="font-display font-black text-sm uppercase tracking-tight">Razorpay</span>
-                  <span className="bg-blue-600 text-[8px] font-black uppercase px-1 rounded-sm">Sandbox Gateway</span>
+                  <span className="font-display font-black text-sm uppercase tracking-tight">
+                    {paymentMethod === 'cod' ? 'Doorstep Cash Settlement' :
+                     paymentMethod === 'wallet' ? 'Chalo Wallet Ledger' :
+                     paymentMethod === 'bnpl' ? 'Chalo Pay Later' : 'Razorpay Sandbox'}
+                  </span>
+                  <span className="bg-blue-600 text-[8px] font-black uppercase px-1 rounded-sm">Sandbox</span>
                 </div>
               </div>
               <div className="text-right">
-                <p className="text-[9px] text-indigo-300">Merch ID</p>
+                <p className="text-[9px] text-indigo-300">Authorize Link</p>
                 <p className="text-[10.5px] font-black text-amber-300 leading-none">Chalo One SuperApp</p>
               </div>
             </div>
 
             {/* Price section and items summary */}
             <div className="p-5 space-y-4">
-              <div className="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-120 text-center">
-                <span className="text-[9.5px] text-indigo-700 font-extrabold uppercase tracking-wider block font-mono">Grand amount to authorize</span>
+              <div className="bg-indigo-50/50 p-3.5 rounded-2xl border border-indigo-120 text-center">
+                <span className="text-[9.5px] text-indigo-700 font-extrabold uppercase tracking-wider block font-mono">Total Settlement Amount</span>
                 <span className="text-3xl font-black text-slate-950 font-mono mt-0.5 block">₹{finalPrice.toFixed(2)}</span>
-                <span className="text-[10px] text-slate-500 font-bold block mt-1 font-sans">Method: {paymentMethod.toUpperCase()} Settlement Link</span>
+                <span className="text-[10px] text-slate-500 font-bold block mt-1 font-sans">
+                  Settlement Route: {paymentMethod.toUpperCase()} Mode
+                </span>
               </div>
 
-              {/* Secure sandbox details form */}
+              {/* Secure sandbox details form based on selection */}
               <div className="space-y-3">
-                <div className="space-y-1">
-                  <span className="text-[9px] text-gray-400 uppercase font-mono tracking-wider font-bold block">Secure Endpoint Redirect URL</span>
-                  <div className="bg-gray-50 border border-gray-150 p-2.5 rounded-xl text-xs text-slate-600 flex items-center justify-between font-mono">
-                    <span className="truncate max-w-[85%] font-medium">api.razorpay.com/v1/checkout/gateway_auth_id</span>
-                    <span className="text-[8px] text-emerald-600 font-bold shrink-0">● ONLINE</span>
+                {paymentMethod === 'card' && (
+                  <div className="space-y-2">
+                    <span className="text-[9.5px] text-indigo-950 uppercase font-bold tracking-wider block">💳 Enter Credit / Debit Card</span>
+                    <div className="space-y-1.5">
+                      <input
+                        type="text"
+                        placeholder="16-Digit Card Number"
+                        value={cardNumber}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, '').slice(0, 16);
+                          const matches = val.match(/\d{4,16}/g);
+                          const match = matches && matches[0] || '';
+                          const parts = [];
+                          for (let i = 0, len = match.length; i < len; i += 4) {
+                            parts.push(match.substring(i, i + 4));
+                          }
+                          if (parts.length > 0) {
+                            setCardNumber(parts.join(' '));
+                          } else {
+                            setCardNumber(val);
+                          }
+                        }}
+                        className="bg-white border border-gray-250 px-3 py-2 rounded-xl text-xs w-full font-mono font-bold"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Cardholder Name"
+                        value={cardHolder}
+                        onChange={(e) => setCardHolder(e.target.value)}
+                        className="bg-white border border-gray-250 px-3 py-2 rounded-xl text-xs w-full font-bold"
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          placeholder="MM/YY"
+                          value={cardExpiry}
+                          maxLength={5}
+                          onChange={(e) => setCardExpiry(e.target.value)}
+                          className="bg-white border border-gray-250 px-3 py-2 rounded-xl text-xs font-mono font-bold text-center"
+                        />
+                        <input
+                          type="password"
+                          placeholder="CVV"
+                          maxLength={3}
+                          value={cardCvv}
+                          onChange={(e) => setCardCvv(e.target.value.replace(/\D/g, ''))}
+                          className="bg-white border border-gray-250 px-3 py-2 rounded-xl text-xs font-mono font-bold text-center"
+                        />
+                      </div>
+                    </div>
+                    <label className="flex items-center space-x-2 text-[10px] text-gray-600 font-bold select-none cursor-pointer pt-1">
+                      <input
+                        type="checkbox"
+                        checked={saveCardCheckbox}
+                        onChange={(e) => setSaveCardCheckbox(e.target.checked)}
+                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                      />
+                      <span>Save card securely to Account Profile</span>
+                    </label>
                   </div>
-                </div>
+                )}
 
-                <div className="space-y-1">
-                  <label className="text-[9px] text-gray-400 uppercase font-mono tracking-wider block font-bold">Simulated billing phone / Email</label>
-                  <input
-                    type="text"
-                    disabled
-                    value="kunal_chalo@everyday.in | +91 9876543210"
-                    className="bg-gray-100 border border-gray-200 px-3 py-2 rounded-xl text-xs w-full font-bold text-gray-600"
-                  />
-                  <p className="text-[8.5px] text-gray-400 leading-tight leading-normal mt-1">This transaction is compliant with Razorpay split checkout API constraints. All credentials are fully secure.</p>
-                </div>
+                {paymentMethod === 'upi' && (
+                  <div className="space-y-2">
+                    <span className="text-[9.5px] text-indigo-950 uppercase font-bold tracking-wider block">⚡ Enter UPI Virtual Address (VPA)</span>
+                    <div className="space-y-1.5">
+                      <div className="flex space-x-1">
+                        <input
+                          type="text"
+                          placeholder="username@okhdfcbank"
+                          value={upiId}
+                          onChange={(e) => setUpiId(e.target.value)}
+                          className="bg-white border border-gray-250 px-3 py-2 rounded-xl text-xs flex-1 font-mono font-bold"
+                        />
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="VPA Label (e.g. My GPay VPA)"
+                        value={upiLabel}
+                        onChange={(e) => setUpiLabel(e.target.value)}
+                        className="bg-white border border-gray-250 px-3 py-2 rounded-xl text-xs w-full font-bold"
+                      />
+                    </div>
+                    <label className="flex items-center space-x-2 text-[10px] text-gray-600 font-bold select-none cursor-pointer pt-1">
+                      <input
+                        type="checkbox"
+                        checked={saveUpiCheckbox}
+                        onChange={(e) => setSaveUpiCheckbox(e.target.checked)}
+                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                      />
+                      <span>Save UPI VPA securely to Account Profile</span>
+                    </label>
+                  </div>
+                )}
+
+                {paymentMethod === 'wallet' && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1.5 text-amber-900">
+                    <div className="flex justify-between font-bold text-[11px]">
+                      <span>Current Wallet Balance:</span>
+                      <span>₹{walletBalance}</span>
+                    </div>
+                    <div className="flex justify-between font-bold text-[11px] text-red-700 border-b border-amber-200 pb-1.5">
+                      <span>Deduction Amount:</span>
+                      <span>-₹{finalPrice}</span>
+                    </div>
+                    <div className="flex justify-between font-bold text-[11px] text-emerald-800 pt-0.5">
+                      <span>Post-Deduction Balance:</span>
+                      <span>₹{walletBalance - finalPrice}</span>
+                    </div>
+                  </div>
+                )}
+
+                {paymentMethod === 'bnpl' && (
+                  <div className="bg-indigo-50 border border-indigo-150 rounded-xl p-3 space-y-1 text-indigo-900 text-[11px]">
+                    <p className="font-bold">✔ Pay Later Settlement Plan Active</p>
+                    <p className="leading-snug">The bill will be added to your 15-day interest-free billing cycle. Statements generate on the 1st and 16th of each month.</p>
+                  </div>
+                )}
+
+                {paymentMethod === 'cod' && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5 text-slate-800 text-[11px]">
+                    <p className="font-bold text-slate-900">💵 Cash / UPI on Delivery (COD)</p>
+                    <p className="leading-snug">No pre-payment is required! You can settle this split order with the delivery executives at your doorstep via cash or any UPI app upon delivery.</p>
+                  </div>
+                )}
               </div>
 
               {/* Interactive payment controller */}
-              <div className="space-y-2 pt-2">
+              <div className="space-y-2 pt-1">
                 {razorpayLoading ? (
                   <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 text-center space-y-2.5 animate-pulse">
                     <div className="inline-block w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="text-[10.5px] font-black text-indigo-900 uppercase tracking-tight">HANDSHAKE SIGNATURE IN PROGRESS...</p>
-                    <p className="text-[9px] text-indigo-600 font-medium">Please do not refresh. Securing transactions escrow...</p>
+                    <p className="text-[10.5px] font-black text-indigo-900 uppercase tracking-tight">SECURING SPLIT LEDGER CHANNELS...</p>
+                    <p className="text-[9px] text-indigo-600 font-medium">Please do not refresh. Escrow handshake in progress...</p>
                   </div>
                 ) : razorpaySuccessState ? (
                   <div className="bg-emerald-50 border border-emerald-250 rounded-2xl p-4 text-center space-y-1 text-emerald-800 flex flex-col items-center justify-center animate-bounce">
-                    <p className="text-xs font-black uppercase tracking-wider">✔ verification success</p>
-                    <p className="text-[9.5px] font-medium text-emerald-600">Emitting legal callback signature instantly...</p>
+                    <p className="text-xs font-black uppercase tracking-wider">✔ SETTLEMENT AUTHORIZED</p>
+                    <p className="text-[9.5px] font-medium text-emerald-600">Dispersing escrow packets to Swiggy, Zomato, Blinkit, and Hotels...</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
@@ -693,15 +916,56 @@ export default function UnifiedCart({
                       onClick={() => setShowRazorpay(false)}
                       className="py-2.5 border border-gray-150 text-gray-500 hover:bg-gray-50 rounded-xl text-xs font-extrabold uppercase transition cursor-pointer"
                     >
-                      Cancel Pay
+                      Cancel
                     </button>
                     <button
                       type="button"
                       onClick={() => {
+                        // Validate Card or UPI if selected
+                        if (paymentMethod === 'card' && (!cardNumber || !cardHolder || !cardExpiry || !cardCvv)) {
+                          alert("Please fill in complete Credit Card details to authenticate split settlement.");
+                          return;
+                        }
+                        if (paymentMethod === 'upi' && !upiId) {
+                          alert("Please enter a valid UPI address (VPA) to route direct debit.");
+                          return;
+                        }
+
                         setRazorpayLoading(true);
                         setTimeout(() => {
                           setRazorpayLoading(false);
                           setRazorpaySuccessState(true);
+
+                          // Local Storage Persistence of Card/UPI if selected
+                          if (paymentMethod === 'card' && saveCardCheckbox) {
+                            try {
+                              const cards = JSON.parse(localStorage.getItem('chalo_saved_cards') || '[]');
+                              const digits = cardNumber.replace(/\s+/g, '');
+                              const lastFour = digits.slice(-4) || '4321';
+                              const bankStr = digits.startsWith('4') ? 'Visa Card' : 'Mastercard';
+                              cards.push({
+                                id: 'c_' + Date.now(),
+                                number: `•••• •••• •••• ${lastFour}`,
+                                holder: cardHolder || 'Kunal Kumar',
+                                expiry: cardExpiry || '12/29',
+                                bank: 'HDFC Bank ' + bankStr
+                              });
+                              localStorage.setItem('chalo_saved_cards', JSON.stringify(cards));
+                            } catch (e) {}
+                          }
+
+                          if (paymentMethod === 'upi' && saveUpiCheckbox) {
+                            try {
+                              const upis = JSON.parse(localStorage.getItem('chalo_saved_upis') || '[]');
+                              upis.push({
+                                id: 'u_' + Date.now(),
+                                upiId: upiId,
+                                label: upiLabel || 'Personal UPI VPA'
+                              });
+                              localStorage.setItem('chalo_saved_upis', JSON.stringify(upis));
+                            } catch (e) {}
+                          }
+
                           setTimeout(() => {
                             setShowRazorpay(false);
                             setRazorpaySuccessState(false);
@@ -709,9 +973,9 @@ export default function UnifiedCart({
                           }, 1200);
                         }, 2000);
                       }}
-                      className="py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer shadow-xs transition-all border-b-2 border-amber-650 flex items-center justify-center"
+                      className="py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-xl text-xs font-black uppercase tracking-wider cursor-pointer shadow-xs transition-all flex items-center justify-center text-center"
                     >
-                      💳 Pay via Razorpay
+                      {paymentMethod === 'cod' ? 'Confirm order' : '💳 Authorize Pay'}
                     </button>
                   </div>
                 )}
@@ -720,7 +984,7 @@ export default function UnifiedCart({
 
             {/* Footer with safety branding */}
             <div className="bg-slate-50 border-t border-gray-150 p-3 text-center text-[9px] text-gray-400 font-mono tracking-widest uppercase">
-              🔒 PCI-DSS COMPLIANT • 256-BIT ENCRYPTION
+              🔒 PCI-DSS COMPLIANT • 256-BIT ESCROW ROUTER
             </div>
           </div>
         </div>

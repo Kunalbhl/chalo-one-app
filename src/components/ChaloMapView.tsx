@@ -28,6 +28,10 @@ interface ChaloMapViewProps {
   onLocationSelect: (locationName: string, lat?: number, lng?: number) => void;
   icon?: React.ReactNode;
   showMap?: boolean;
+  pickupCoords?: { lat: number, lng: number };
+  destCoords?: { lat: number, lng: number };
+  isTrackingMode?: boolean;
+  tripLiveStatus?: string;
 }
 
 const API_KEY = 'AIzaSyDT-9rRHZes_zgKEMGFeup_LNeXjWqhf5I';
@@ -46,7 +50,11 @@ function ChaloMapViewInner({
   initialValue,
   onLocationSelect,
   icon,
-  showMap = true
+  showMap = true,
+  pickupCoords,
+  destCoords,
+  isTrackingMode = false,
+  tripLiveStatus = 'driver_assigned'
 }: ChaloMapViewProps) {
   const [query, setQuery] = useState(initialValue);
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -56,10 +64,50 @@ function ChaloMapViewInner({
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [mapType, setMapType] = useState<'roadmap' | 'satellite'>('roadmap');
 
+  const [cabProgress, setCabProgress] = useState(0.1);
+
+  // Monitor live tracking status and progress
+  useEffect(() => {
+    if (!isTrackingMode) return;
+
+    let interval: any;
+    if (tripLiveStatus === 'driver_assigned') {
+      setCabProgress(0.05);
+      interval = setInterval(() => {
+        setCabProgress(p => p < 0.25 ? p + 0.015 : 0.05);
+      }, 400);
+    } else if (tripLiveStatus === 'arriving') {
+      setCabProgress(0.85);
+      interval = setInterval(() => {
+        setCabProgress(p => p < 0.95 ? p + 0.005 : 0.85);
+      }, 400);
+    } else if (tripLiveStatus === 'active') {
+      setCabProgress(0.2);
+      interval = setInterval(() => {
+        setCabProgress(p => p < 1.0 ? p + 0.02 : 0.2);
+      }, 300);
+    } else if (tripLiveStatus === 'completed') {
+      setCabProgress(1.0);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isTrackingMode, tripLiveStatus]);
+
+  const map = useMap();
+
+  // Re-center map to focus on route or pickup point when tracking goes live
+  useEffect(() => {
+    if (isTrackingMode && pickupCoords && map) {
+      map.setCenter(pickupCoords);
+      map.setZoom(14);
+    }
+  }, [isTrackingMode, pickupCoords, map]);
+
   const placesLib = useMapsLibrary('places');
   const [autocompleteService, setAutocompleteService] = useState<any>(null);
   const [placesService, setPlacesService] = useState<any>(null);
-  const map = useMap();
 
   useEffect(() => {
     setQuery(initialValue);
@@ -350,17 +398,70 @@ function ChaloMapViewInner({
 
       {/* Embedded Map Widget */}
       {showMap && (
-        <div className="w-full h-44 rounded-2xl overflow-hidden border border-slate-200 relative bg-slate-100 shadow-inner group">
+        <div className={`w-full ${isTrackingMode ? 'h-full' : 'h-44'} rounded-2xl overflow-hidden border border-slate-200 relative bg-slate-100 shadow-inner group`}>
           <Map
-            center={selectedCoords || { lat: 12.9716, lng: 77.5946 }}
-            zoom={14}
+            center={isTrackingMode && pickupCoords ? pickupCoords : (selectedCoords || { lat: 12.9716, lng: 77.5946 })}
+            zoom={isTrackingMode ? 14 : 14}
             mapTypeId={mapType}
             internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
             style={{ width: '100%', height: '100%' }}
             disableDefaultUI={false}
           >
             <LiveMapSearch />
+
+            {/* Tracking Elements on Google Map */}
+            {isTrackingMode && pickupCoords && (
+              <Marker 
+                position={pickupCoords}
+                title="Your Pickup Point"
+                label="📍"
+              />
+            )}
+
+            {isTrackingMode && destCoords && (
+              <Marker 
+                position={destCoords}
+                title="Your Destination"
+                label="🏁"
+              />
+            )}
+
+            {isTrackingMode && pickupCoords && destCoords && (
+              <Marker 
+                position={{
+                  lat: pickupCoords.lat + (destCoords.lat - pickupCoords.lat) * cabProgress,
+                  lng: pickupCoords.lng + (destCoords.lng - pickupCoords.lng) * cabProgress
+                }}
+                title="Chalo Active Cab Tracker"
+                label="🚖"
+              />
+            )}
           </Map>
+
+          {/* Tracking HUD Overlay */}
+          {isTrackingMode && (
+            <div className="absolute top-2.5 left-2.5 z-20 bg-slate-950/90 text-white p-3 rounded-2xl border border-slate-700/80 max-w-[240px] shadow-lg backdrop-blur-xs space-y-1.5 font-sans">
+              <div className="flex items-center space-x-1.5 text-[9px] uppercase font-mono tracking-wider font-extrabold text-amber-400">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0"></span>
+                <span>Chalo Active Tracking Engine</span>
+              </div>
+              <p className="text-[10px] font-bold text-slate-100 truncate">
+                {tripLiveStatus === 'driver_assigned' ? 'Driver assigned & dispatched' : 
+                 tripLiveStatus === 'arriving' ? 'Driver approaching pickup location' : 
+                 tripLiveStatus === 'active' ? 'Cab glides smoothly to destination' : 'Trip completed safely!'}
+              </p>
+              <div className="flex items-center justify-between text-[9px] text-slate-400 pt-1 font-mono">
+                <span>Distance Progress: {Math.round(cabProgress * 100)}%</span>
+                <span>Speed: {tripLiveStatus === 'active' ? '48 km/h' : '0 km/h'}</span>
+              </div>
+              <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div 
+                  className="bg-amber-400 h-1.5 rounded-full transition-all duration-300"
+                  style={{ width: `${cabProgress * 100}%` }}
+                ></div>
+              </div>
+            </div>
+          )}
 
           {/* Map UI overlays with view selection */}
           <div className="absolute top-2.5 right-2.5 z-20 flex space-x-1.5 items-center">

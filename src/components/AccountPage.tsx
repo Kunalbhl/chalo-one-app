@@ -346,16 +346,30 @@ export default function AccountPage({
 
   // Payment Management States
   const [txnFilter, setTxnFilter] = useState<'All' | 'Card' | 'Wallet' | 'UPI'>('All');
-  const [savedCards, setSavedCards] = useState([
-    { id: '1', bank: 'HDFC', type: 'Visa credit', number: '•••• •••• •••• 9812', expiry: '12/29' },
-    { id: '2', bank: 'ICICI', type: 'Mastercard debit', number: '•••• •••• •••• 1042', expiry: '04/32' }
-  ]);
-  const [savedUpis, setSavedUpis] = useState([
-    { id: '1', upiId: 'kunal@okhdfcbank', label: 'Primary UPI' }
-  ]);
-  const [savedWallets, setSavedWallets] = useState([
-    { id: '1', name: 'Paytm Wallet', phone: '9876543210', balance: 450.00 }
-  ]);
+  const [savedCards, setSavedCards] = useState<any[]>(() => {
+    const saved = localStorage.getItem("chalo_saved_cards");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [savedUpis, setSavedUpis] = useState<any[]>(() => {
+    const saved = localStorage.getItem("chalo_saved_upis");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [savedWallets, setSavedWallets] = useState<any[]>(() => {
+    const saved = localStorage.getItem("chalo_saved_wallets");
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  React.useEffect(() => {
+    localStorage.setItem("chalo_saved_cards", JSON.stringify(savedCards));
+  }, [savedCards]);
+
+  React.useEffect(() => {
+    localStorage.setItem("chalo_saved_upis", JSON.stringify(savedUpis));
+  }, [savedUpis]);
+
+  React.useEffect(() => {
+    localStorage.setItem("chalo_saved_wallets", JSON.stringify(savedWallets));
+  }, [savedWallets]);
 
   // Form Adding Toggle States & Inputs
   const [addingMethodType, setAddingMethodType] = useState<'none' | 'card' | 'upi' | 'wallet'>('none');

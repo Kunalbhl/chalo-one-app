@@ -6,11 +6,21 @@ import ChaloMapView from './ChaloMapView';
 
 interface IntercityModuleProps {
   addOrderToActivity: (order: any) => void;
+  setActiveTab?: (tab: string) => void;
+  connectedAccounts?: any;
+  currentSelectedLocation?: string;
+  preferenceMode?: string;
 }
 
-export default function IntercityModule({ addOrderToActivity }: IntercityModuleProps) {
+export default function IntercityModule({
+  addOrderToActivity,
+  setActiveTab,
+  connectedAccounts,
+  currentSelectedLocation,
+  preferenceMode
+}: IntercityModuleProps) {
   const [pickup, setPickup] = useState(() => {
-    return localStorage.getItem('chalo_intercity_pickup') || 'Jaipur';
+    return currentSelectedLocation || localStorage.getItem('chalo_intercity_pickup') || 'Jaipur';
   });
   const [destination, setDestination] = useState(() => {
     return localStorage.getItem('chalo_intercity_destination') || 'Delhi';
@@ -27,9 +37,26 @@ export default function IntercityModule({ addOrderToActivity }: IntercityModuleP
   const [viewingDetailOption, setViewingDetailOption] = useState<any | null>(null);
 
   // Filter and Sort states for Intercity comparison
-  const [icSortBy, setIcSortBy] = useState<'fare' | 'time' | 'comfort'>('fare');
   const [icFilterVehicle, setIcFilterVehicle] = useState<string>('All');
   const [icFilterPlatform, setIcFilterPlatform] = useState<string>('All');
+
+  // Interactive local sorting preference state
+  const [localPreferenceMode, setLocalPreferenceMode] = useState<string>(preferenceMode || 'cheapest');
+  const [showLinkBanner, setShowLinkBanner] = useState(true);
+
+  // Sync preferenceMode prop with local state
+  React.useEffect(() => {
+    if (preferenceMode) {
+      setLocalPreferenceMode(preferenceMode);
+    }
+  }, [preferenceMode]);
+
+  // Sync pickup when currentSelectedLocation changes
+  React.useEffect(() => {
+    if (currentSelectedLocation) {
+      setPickup(currentSelectedLocation);
+    }
+  }, [currentSelectedLocation]);
 
   // Automatically calculate if loaded from redirection
   React.useEffect(() => {
@@ -83,7 +110,7 @@ export default function IntercityModule({ addOrderToActivity }: IntercityModuleP
         vehicleType: recommendedItem.type,
         recommended: true,
         reason: recommendedItem.reason,
-        platform: "Ola Intercity",
+        platform: "Ola",
         fare: Math.floor(distance * 13 + tollCharges),
         travelTime: `${Math.floor(distance / 50)}h ${Math.round((distance % 50) * 1.2)}m`,
         tollCharges,
@@ -95,7 +122,7 @@ export default function IntercityModule({ addOrderToActivity }: IntercityModuleP
         vehicleType: recommendedItem.type,
         recommended: false,
         reason: "Alternative budget provider with standard feedback ratings.",
-        platform: "Uber Intercity",
+        platform: "Uber",
         fare: Math.floor(distance * 13.8 + tollCharges),
         travelTime: `${Math.floor(distance / 52)}h ${Math.round((distance % 52) * 1.15)}m`,
         tollCharges,
@@ -107,7 +134,7 @@ export default function IntercityModule({ addOrderToActivity }: IntercityModuleP
         vehicleType: recommendedItem.type,
         recommended: false,
         reason: "Includes complimentary packaged water and corporate-vetted premium drivers.",
-        platform: "MakeMyTrip Outstation",
+        platform: "MakeMyTrip",
         fare: Math.floor(distance * 14.5 + tollCharges),
         travelTime: `${Math.floor(distance / 50)}h ${Math.round((distance % 50) * 1.2)}m`,
         tollCharges,
@@ -171,9 +198,16 @@ export default function IntercityModule({ addOrderToActivity }: IntercityModuleP
       return true;
     })
     .sort((a, b) => {
-      if (icSortBy === 'fare') return a.fare - b.fare;
-      if (icSortBy === 'comfort') return b.comfortScore - a.comfortScore;
-      return 0;
+      if (localPreferenceMode === 'cheapest') {
+        return a.fare - b.fare;
+      } else if (localPreferenceMode === 'fastest') {
+        return a.durationMinutes - b.durationMinutes;
+      } else if (localPreferenceMode === 'rated') {
+        return b.comfortScore - a.comfortScore;
+      } else {
+        // Default AI balance
+        return a.fare - b.fare;
+      }
     });
 
   return (
@@ -187,6 +221,31 @@ export default function IntercityModule({ addOrderToActivity }: IntercityModuleP
           <p className="text-xs text-gray-500">Auto-recommend optimal vehicle size + multi-platform outstation fares</p>
         </div>
       </div>
+
+      {showLinkBanner && (!connectedAccounts || (!connectedAccounts.uber && !connectedAccounts.ola && !connectedAccounts.makemytrip)) && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-amber-900 font-medium font-sans">
+          <div className="flex items-center space-x-2">
+            <span className="text-base shrink-0">💡</span>
+            <span>Link your Ola, Uber, and MakeMyTrip accounts to automatically unlock highway loyalty points and priority vehicle routing!</span>
+          </div>
+          <div className="flex items-center space-x-2 shrink-0">
+            <button 
+              type="button" 
+              onClick={() => { if (setActiveTab) setActiveTab('account'); }} 
+              className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer"
+            >
+              Link Account
+            </button>
+            <button 
+              type="button" 
+              onClick={() => setShowLinkBanner(false)} 
+              className="text-amber-500 hover:text-amber-700 text-xs font-bold px-1.5 py-1"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleCalculate} className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100 space-y-4">
         <div className="space-y-4">
@@ -338,48 +397,72 @@ export default function IntercityModule({ addOrderToActivity }: IntercityModuleP
           </div>
 
           {/* Filter and Sort controls */}
-          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 flex flex-wrap gap-2 items-center justify-between">
-            <div className="flex items-center space-x-1">
-              <Compass className="w-3.5 h-3.5 text-indigo-600" />
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 font-mono">Filters & Sort</span>
+          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-1">
+                <Compass className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 font-mono">Filters & Sort Options</span>
+              </div>
+              <span className="text-[10px] text-slate-400 font-bold font-mono">App Preference Synced</span>
             </div>
-            
-            <div className="flex flex-wrap gap-2">
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {/* Vehicle Type Filter */}
-              <select
-                value={icFilterVehicle}
-                onChange={(e) => setIcFilterVehicle(e.target.value)}
-                className="bg-white border border-slate-250 text-xs px-2.5 py-1.5 rounded-xl text-slate-700 font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-              >
-                <option value="All">All Vehicle Types</option>
-                <option value="Sedan">Sedan Only</option>
-                <option value="SUV">SUV Only</option>
-                <option value="Innova">Innova Only</option>
-                <option value="Tempo">Tempo Traveller Only</option>
-              </select>
+              <div>
+                <span className="block text-[8px] text-slate-450 font-black uppercase mb-1 font-mono">Vehicle Segment</span>
+                <select
+                  value={icFilterVehicle}
+                  onChange={(e) => setIcFilterVehicle(e.target.value)}
+                  className="w-full bg-white border border-slate-200 text-xs px-2.5 py-1.5 rounded-xl text-slate-700 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                >
+                  <option value="All">All Vehicle Types</option>
+                  <option value="Sedan">Sedan Only</option>
+                  <option value="SUV">SUV Only</option>
+                  <option value="Innova">Innova Only</option>
+                  <option value="Tempo">Tempo Traveller Only</option>
+                </select>
+              </div>
 
               {/* Operator Filter */}
-              <select
-                value={icFilterPlatform}
-                onChange={(e) => setIcFilterPlatform(e.target.value)}
-                className="bg-white border border-slate-250 text-xs px-2.5 py-1.5 rounded-xl text-slate-700 font-medium focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-              >
-                <option value="All">All Operators</option>
-                <option value="Ola">Ola</option>
-                <option value="Uber">Uber</option>
-                <option value="MakeMyTrip">MakeMyTrip</option>
-              </select>
+              <div>
+                <span className="block text-[8px] text-slate-450 font-black uppercase mb-1 font-mono">Highway Operator</span>
+                <select
+                  value={icFilterPlatform}
+                  onChange={(e) => setIcFilterPlatform(e.target.value)}
+                  className="w-full bg-white border border-slate-200 text-xs px-2.5 py-1.5 rounded-xl text-slate-700 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                >
+                  <option value="All">All Operators</option>
+                  <option value="Ola">Ola</option>
+                  <option value="Uber">Uber</option>
+                  <option value="MakeMyTrip">MakeMyTrip</option>
+                </select>
+              </div>
+            </div>
 
-              {/* Sort By Selector */}
-              <select
-                value={icSortBy}
-                onChange={(e) => setIcSortBy(e.target.value as any)}
-                className="bg-indigo-50 border border-indigo-200 text-xs px-2.5 py-1.5 rounded-xl text-indigo-800 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-              >
-                <option value="fare">Sort: Cheapest Fare</option>
-                <option value="time">Sort: Fastest Duration</option>
-                <option value="comfort">Sort: Highest Comfort</option>
-              </select>
+            {/* Interactive Sort Row */}
+            <div>
+              <span className="block text-[8px] text-slate-455 font-black uppercase mb-1 font-mono">Sort Options</span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {[
+                  { val: 'cheapest', label: '💰 Cheapest First' },
+                  { val: 'fastest', label: '⚡ Fastest Duration' },
+                  { val: 'rated', label: '⭐ Highest Rating' },
+                  { val: 'ai', label: '🧠 Smart Recommended' }
+                ].map(opt => (
+                  <button
+                    key={opt.val}
+                    type="button"
+                    onClick={() => setLocalPreferenceMode(opt.val)}
+                    className={`px-2 py-1.5 rounded-xl text-[10.5px] font-bold border transition text-center cursor-pointer ${
+                      localPreferenceMode === opt.val
+                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

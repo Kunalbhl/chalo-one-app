@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ChaloWallet, WalletTransaction, ReferralState, UserProfile } from '../types';
 import { LEADERBOARD_WEEKLY, LEADERBOARD_MONTHLY, LEADERBOARD_ALLTIME } from '../data';
-import { Coins, Award, Users, Share2, QrCode, ArrowUpRight, HelpCircle, ArrowRightLeft, Gift, Zap, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Coins, Award, Users, Share2, QrCode, ArrowUpRight, HelpCircle, ArrowRightLeft, Gift, Zap, CheckCircle, AlertTriangle, CreditCard, Sparkles } from 'lucide-react';
 
 interface ReferralAndWalletProps {
   wallet: ChaloWallet;
@@ -44,6 +44,18 @@ export default function ReferralAndWallet({
   const [transferAmount, setTransferAmount] = useState('');
   const [activeLeaderboardPeriod, setActiveLeaderboardPeriod] = useState<'weekly' | 'monthly' | 'alltime'>('weekly');
   const [copied, setCopied] = useState(false);
+  const [ledgerFilter, setLedgerFilter] = useState<'All' | 'Rewards' | 'Payments' | 'Transfers'>('All');
+
+  const getTransactionCategory = (tx: WalletTransaction): 'Rewards' | 'Payments' | 'Transfers' => {
+    const desc = tx.description.toLowerCase();
+    if (desc.includes('redeem') || desc.includes('referral') || desc.includes('signup') || desc.includes('sign-up') || desc.includes('reward') || desc.includes('welcome') || desc.includes('gift') || desc.includes('bonus')) {
+      return 'Rewards';
+    }
+    if (desc.includes('transfer') || desc.includes('sent') || desc.includes('received') || desc.includes('send') || desc.includes('receive') || desc.includes('p2p')) {
+      return 'Transfers';
+    }
+    return 'Payments';
+  };
 
   // Invite codes information
   const referralState: ReferralState = {
@@ -240,24 +252,76 @@ export default function ReferralAndWallet({
           </div>
 
           {/* Wallet Transaction history lists */}
-          <div className="space-y-2.5">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-0.5">Transaction Ledger</span>
-            <div className="space-y-2">
-              {wallet.history.map(tx => (
-                <div key={tx.id} className="bg-white p-3.5 rounded-xl border border-gray-150 flex justify-between items-center shadow-xs">
-                  <div>
-                    <h5 className="text-xs font-bold text-gray-900">{tx.description}</h5>
-                    <span className="text-[10px] text-gray-400 block font-mono mt-0.5">TXND: {tx.id}</span>
-                  </div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-0.5">Transaction Ledger</span>
+              <div className="flex flex-wrap gap-1">
+                {(['All', 'Rewards', 'Payments', 'Transfers'] as const).map((filter) => {
+                  const isActive = ledgerFilter === filter;
+                  return (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => setLedgerFilter(filter)}
+                      className={`text-[9.5px] font-mono uppercase font-black px-2 py-1 rounded-lg border transition cursor-pointer ${
+                        isActive
+                          ? 'bg-amber-500 border-amber-500 text-white shadow-2xs'
+                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {filter}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-                  <div className="text-right font-mono text-xs">
-                    <span className={`font-bold ${tx.type === 'credit' ? 'text-emerald-600' : 'text-red-650'}`}>
-                      {tx.type === 'credit' ? '+' : '-'}₹{tx.amount}
-                    </span>
-                    <span className="text-[9.5px] text-gray-400 block font-semibold">{tx.pointsSpentOrEarned > 0 ? `(${tx.pointsSpentOrEarned} pts)` : ''}</span>
-                  </div>
+            <div className="space-y-2">
+              {wallet.history
+                .filter(tx => ledgerFilter === 'All' || getTransactionCategory(tx) === ledgerFilter)
+                .map(tx => {
+                  const category = getTransactionCategory(tx);
+                  let iconElement = <Zap className="w-4 h-4 text-rose-500" />;
+                  let bgClass = 'bg-rose-50 border border-rose-100';
+
+                  if (category === 'Rewards') {
+                    iconElement = <Gift className="w-4 h-4 text-amber-500" />;
+                    bgClass = 'bg-amber-50 border border-amber-100';
+                  } else if (category === 'Transfers') {
+                    iconElement = <ArrowRightLeft className="w-4 h-4 text-indigo-500" />;
+                    bgClass = 'bg-indigo-50 border border-indigo-100';
+                  }
+
+                  return (
+                    <div key={tx.id} className="bg-white p-3.5 rounded-xl border border-gray-150 flex justify-between items-center shadow-xs">
+                      <div className="flex items-center space-x-3">
+                        <div className={`p-2 rounded-xl ${bgClass} shrink-0`}>
+                          {iconElement}
+                        </div>
+                        <div>
+                          <h5 className="text-xs font-bold text-gray-900">{tx.description}</h5>
+                          <div className="flex items-center space-x-1.5 mt-0.5">
+                            <span className="text-[10px] text-gray-400 font-mono">TXND: {tx.id}</span>
+                            <span className="text-[10px] text-gray-300">•</span>
+                            <span className="text-[10px] text-amber-600 font-mono font-bold uppercase">{category}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right font-mono text-xs">
+                        <span className={`font-bold ${tx.type === 'credit' ? 'text-emerald-600' : 'text-red-650'}`}>
+                          {tx.type === 'credit' ? '+' : '-'}₹{tx.amount}
+                        </span>
+                        <span className="text-[9.5px] text-gray-400 block font-semibold">{tx.pointsSpentOrEarned > 0 ? `(${tx.pointsSpentOrEarned} pts)` : ''}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              {wallet.history.filter(tx => ledgerFilter === 'All' || getTransactionCategory(tx) === ledgerFilter).length === 0 && (
+                <div className="bg-gray-50 border border-dashed border-gray-200 text-center py-6 rounded-xl text-gray-400 text-xs font-medium">
+                  No transactions found matching "{ledgerFilter}"
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </div>

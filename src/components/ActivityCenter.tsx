@@ -653,30 +653,38 @@ TOTAL AMOUNT:   ₹${selectedItem.amount}.00
               )}
             </div>
 
-            {/* Downable PDF Receipt Segment */}
-            <div className="border border-gray-150 rounded-2xl p-4 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-bold text-xs text-gray-900">Download Receipt</h4>
-                  <p className="text-[10px] text-gray-400">Get complete digital proof of this transaction</p>
+            {/* Downable PDF Receipt Segment - ONLY accessible once done & delivered */}
+            {(selectedItem.status === 'completed' || selectedItem.status === 'delivered') ? (
+              <div className="border border-gray-150 rounded-2xl p-4 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-bold text-xs text-gray-900">Download Receipt</h4>
+                    <p className="text-[10px] text-gray-400">Get complete digital proof of this transaction</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDownloadPdf}
+                    disabled={isPdfDownloading}
+                    className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-[10.5px] uppercase tracking-wider rounded-xl transition cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+                  >
+                    {isPdfDownloading ? (
+                      <>
+                        <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                        <span>Generating...</span>
+                      </>
+                    ) : (
+                      <span>Download PDF</span>
+                    )}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleDownloadPdf}
-                  disabled={isPdfDownloading}
-                  className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-[10.5px] uppercase tracking-wider rounded-xl transition cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
-                >
-                  {isPdfDownloading ? (
-                    <>
-                      <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                      <span>Generating...</span>
-                    </>
-                  ) : (
-                    <span>Download PDF</span>
-                  )}
-                </button>
               </div>
-            </div>
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+                <p className="text-[11px] text-amber-800 font-bold">
+                  🔒 Receipt download will become active once your order is fully completed/delivered.
+                </p>
+              </div>
+            )}
 
             {/* Raise an Issue Segment */}
             <div className="border-t border-gray-100 pt-4 space-y-3">

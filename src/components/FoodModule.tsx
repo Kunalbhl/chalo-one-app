@@ -28,6 +28,9 @@ interface FoodModuleProps {
   preferenceMode: string;
   defaultFoodOrder: string[];
   defaultFoodType?: 'Veg' | 'Non-Veg' | 'Eggetarian' | "Doesn't Matter";
+  setActiveTab?: (tab: string) => void;
+  connectedAccounts?: any;
+  currentSelectedLocation?: string;
 }
 
 // Enhanced detailed local restaurant database representation
@@ -331,7 +334,10 @@ export default function FoodModule({
   removeFromCart,
   preferenceMode,
   defaultFoodOrder,
-  defaultFoodType
+  defaultFoodType,
+  setActiveTab,
+  connectedAccounts,
+  currentSelectedLocation
 }: FoodModuleProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [recentSearches, setRecentSearches] = useState<string[]>(['Biryani', 'Cheese Pizza', 'Garlic Bread']);
@@ -344,9 +350,17 @@ export default function FoodModule({
   // Compare Panel state variables
   const [focusedDishId, setFocusedDishId] = useState<string | null>(null);
 
-  // Additional Filter and Sort states for Food module
-  const [foodSortBy, setFoodSortBy] = useState<'rating' | 'cost_asc' | 'time'>('rating');
+  // Interactive local sorting preference state
+  const [localPreferenceMode, setLocalPreferenceMode] = useState<string>(preferenceMode || 'cheapest');
+  const [showLinkBanner, setShowLinkBanner] = useState(true);
   const [selectedCuisine, setSelectedCuisine] = useState<string>('All');
+
+  // Sync preferenceMode prop with local state
+  useEffect(() => {
+    if (preferenceMode) {
+      setLocalPreferenceMode(preferenceMode);
+    }
+  }, [preferenceMode]);
 
   const handleSearchSubmit = (val: string) => {
     setSearchQuery(val);
@@ -531,22 +545,46 @@ export default function FoodModule({
             </div>
           </div>
 
+          {showLinkBanner && (!connectedAccounts || (!connectedAccounts.zomato && !connectedAccounts.swiggy && !connectedAccounts.eatsure)) && (
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-rose-900 font-medium font-sans">
+              <div className="flex items-center space-x-2">
+                <span className="text-base shrink-0">💡</span>
+                <span>Link your Swiggy, Zomato, and EatSure accounts to dynamically sync SuperCoins, Active Pro memberships, and loyalty benefits!</span>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0">
+                <button 
+                  type="button" 
+                  onClick={() => { if (setActiveTab) setActiveTab('account'); }} 
+                  className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer"
+                >
+                  Link Account
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setShowLinkBanner(false)} 
+                  className="text-rose-500 hover:text-rose-700 text-xs font-bold px-1.5 py-1"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* DIET, CUISINE SELECTION, AND SORTING OPTIONS FOR MAIN DIRECTORY */}
-          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
-            <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-              <span className="flex items-center space-x-1">
+          {/* Filters & Sort Panel */}
+          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-1">
                 <SlidersHorizontal className="w-3.5 h-3.5 text-rose-500" />
-                <span>Filters & Sort Options</span>
-              </span>
-              <span className="text-[10px] bg-rose-50 text-rose-600 px-2 py-0.5 rounded-full font-mono font-bold">
-                Multi-Platform Real-time
-              </span>
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 font-mono">Filters & Sort Options</span>
+              </div>
+              <span className="text-[10px] text-slate-400 font-bold font-mono">App Preference Synced</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {/* Diet selection */}
               <div>
-                <label className="block text-[9px] text-slate-400 uppercase font-mono font-bold mb-1">Diet Preference</label>
+                <span className="block text-[8px] text-slate-450 font-black uppercase mb-1 font-mono">Diet Preference</span>
                 <div className="flex bg-white rounded-xl border border-slate-200 p-0.5">
                   {(['All', 'Veg', 'Non-Veg'] as const).map((pref) => (
                     <button
@@ -556,7 +594,7 @@ export default function FoodModule({
                       className={`flex-1 text-center py-1 text-[10px] font-bold rounded-lg transition cursor-pointer ${
                         dietFilter === pref
                           ? 'bg-rose-500 text-white shadow-xs'
-                          : 'text-slate-650 hover:bg-slate-100'
+                          : 'text-slate-600 hover:bg-slate-100'
                       }`}
                     >
                       {pref === 'Veg' ? '🟢 Veg' : pref === 'Non-Veg' ? '🔴 Non-Veg' : '🍽️ All'}
@@ -567,32 +605,44 @@ export default function FoodModule({
 
               {/* Cuisine selection */}
               <div>
-                <label className="block text-[9px] text-slate-400 uppercase font-mono font-bold mb-1">Cuisine Type</label>
+                <span className="block text-[8px] text-slate-450 font-black uppercase mb-1 font-mono">Cuisine Type</span>
                 <select
                   value={selectedCuisine}
                   onChange={(e) => setSelectedCuisine(e.target.value)}
-                  className="w-full bg-white border border-slate-200 text-[11px] px-2.5 py-1.5 rounded-xl text-slate-700 font-bold focus:outline-none focus:ring-1 focus:ring-rose-500 cursor-pointer"
+                  className="w-full bg-white border border-slate-200 text-xs px-2.5 py-1.5 rounded-xl text-slate-700 font-bold focus:outline-none focus:ring-1 focus:ring-rose-500 cursor-pointer"
                 >
                   <option value="All">All Cuisines</option>
-                  <option value="South Indian">South Indian</option>
-                  <option value="North Indian">North Indian</option>
+                  <option value="South Indian">South Indian Only</option>
+                  <option value="North Indian">North Indian Only</option>
                   <option value="Pizza">Pizzas & Fast Food</option>
                   <option value="Desserts">Sweet Treats & Coffee</option>
                 </select>
               </div>
+            </div>
 
-              {/* Sort selector */}
-              <div>
-                <label className="block text-[9px] text-slate-400 uppercase font-mono font-bold mb-1">Sort Outlets By</label>
-                <select
-                  value={foodSortBy}
-                  onChange={(e) => setFoodSortBy(e.target.value as any)}
-                  className="w-full bg-white border border-slate-200 text-[11px] px-2.5 py-1.5 rounded-xl text-slate-700 font-bold focus:outline-none focus:ring-1 focus:ring-rose-500 cursor-pointer"
-                >
-                  <option value="rating">★ Highest Ratings</option>
-                  <option value="cost_asc">₹ Price: Low to High</option>
-                  <option value="time">⚡ Delivery: Fastest first</option>
-                </select>
+            {/* Interactive Sort Row */}
+            <div>
+              <span className="block text-[8px] text-slate-455 font-black uppercase mb-1 font-mono">Sort Options</span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {[
+                  { val: 'cheapest', label: '💰 Cheapest First' },
+                  { val: 'fastest', label: '⚡ Fastest Duration' },
+                  { val: 'rated', label: '⭐ Highest Rating' },
+                  { val: 'ai', label: '🧠 Smart Recommended' }
+                ].map(opt => (
+                  <button
+                    key={opt.val}
+                    type="button"
+                    onClick={() => setLocalPreferenceMode(opt.val)}
+                    className={`px-2 py-1.5 rounded-xl text-[10.5px] font-bold border transition text-center cursor-pointer ${
+                      localPreferenceMode === opt.val
+                        ? 'bg-rose-500 border-rose-500 text-white shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
@@ -632,10 +682,20 @@ export default function FoodModule({
 
               return true;
             }).sort((a, b) => {
-              if (foodSortBy === 'rating') return b.rating - a.rating;
-              if (foodSortBy === 'time') return a.deliveryTime - b.deliveryTime;
-              if (foodSortBy === 'cost_asc') return (a.menuCategories[0]?.items[0]?.price || 0) - (b.menuCategories[0]?.items[0]?.price || 0);
-              return 0;
+              if (localPreferenceMode === 'cheapest') {
+                return (a.menuCategories[0]?.items[0]?.price || 999) - (b.menuCategories[0]?.items[0]?.price || 999);
+              } else if (localPreferenceMode === 'fastest') {
+                return a.deliveryTime - b.deliveryTime;
+              } else if (localPreferenceMode === 'rated') {
+                return b.rating - a.rating;
+              } else {
+                // Default fallback AI recommendation ranking
+                const idxA = defaultFoodOrder ? defaultFoodOrder.indexOf(a.name) : -1;
+                const idxB = defaultFoodOrder ? defaultFoodOrder.indexOf(b.name) : -1;
+                const valA = idxA === -1 ? 99 : idxA;
+                const valB = idxB === -1 ? 99 : idxB;
+                return valA - valB;
+              }
             }).map(outlet => (
               <div
                 key={outlet.name}

@@ -34,15 +34,25 @@ async function startServer() {
       const lastUserMessage = messages[messages.length - 1]?.content || "";
       
       const systemInstruction = `
-        You are "Chalo Support AI", the super-intelligent comparison assistant for "Chalo - India's Everyday Super App".
-        Chalo integrates platforms across India like Ola, Uber, Rapido, Namma Yatri, BluSmart (for Rides); Swiggy, Zomato, EatSure (for Food); Blinkit, Zepto, Instamart, JioMart, BigBasket (for Mart/Grocery); and Booking.com, Agoda, MakeMyTrip, Cleartrip (for Stays).
+        You are "Chalo Support AI", the super-intelligent companion and trip planner for "Chalo - India's Everyday Super App".
+        Chalo integrates services across India: Ola, Uber, Rapido, Namma Yatri, BluSmart (Rides); Swiggy, Zomato, EatSure (Food); Blinkit, Zepto, Instamart, JioMart (Mart); Booking.com, Agoda, MakeMyTrip, Cleartrip (Stays).
 
-        Your objective:
-        - Guide Indian users on the best, cheapest, fastest, and most optimized travel, food, grocery, or stay option.
-        - Actively compare rates and services (e.g., Zomato Delivery Fee vs Swiggy, Uber Sedan vs Ola Auto).
-        - Suggest smart compromises (e.g., "Take a Rapido Bike instead of Uber Sedan to save ₹120 and 15 mins").
-        - Always sound helpful, professional, polite, and uniquely Indian (refer to rupees, popular locations, local saving culture "saving money", and peak pricing).
-        - Keep answers relatively concise and highly structured using bullet points or clean markdown tables.
+        CRITICAL OBJECTIVE - SMART TRAVEL PLANNER INTEGRATED IN CHAT:
+        - When the user asks to plan a trip, travel, or itinerary, you must act as a polite, highly sensible, and comprehensive Smart Travel Planner.
+        - Rather than outputting a static form, you MUST gather details through interactive, natural questions.
+        - Sequentially ask about:
+          1. Destination and Number of Days.
+          2. Total Members: count of Adults, Children, Pets, and Senior Citizens (to customize compatibility and comfort-wise travel plans).
+          3. Travel Mode & Budget/Comfort preferences (e.g., Luxury, Moderate, Budget-friendly).
+        - Once you receive these answers (or if they are already provided in the prompt), design a custom, elite, "best and final" travel plan.
+        - For EACH day of the itinerary, explicitly detail:
+          - Scheduled Activities & Sightseeing.
+          - Recommended Facilities and Stays (with comfort notes for seniors, children, or pets if present).
+          - Transportation Options (comparing Uber, Ola, local rails, or outstation cabs).
+          - Precise Transit Connectivity (how exactly to reach each destination, toll ways, distance, and booking tips).
+        - Ensure senior citizens get low-walking, wheelchair-accessible, or comfortable air-conditioned options, pets get pet-friendly resort/cab filters, and children get kid-safe recreational suggestions.
+        - Always sound extremely polite, helpful, empathetic, and uniquely Indian (refer to Rupees ₹, local saving tips, weather comfort, and optimal travel timings).
+        - Keep other general comparisons (food, rides, groceries) fast, accurate, and structured.
 
         Target User Preferences currently set in Chalo:
         - Mode: ${userPreferences?.preferenceMode || 'AI Recommended'}
@@ -222,6 +232,65 @@ async function startServer() {
   // 2. Fallback local AI response generator for offline/local run scenarios
   function getLocalAIResponse(messages: any[], userPreferences: any): string {
     const lastMsg = (messages[messages.length - 1]?.content || "").toLowerCase();
+    const allMsgsStr = messages.map(m => m.content.toLowerCase()).join(" ");
+
+    // Check if user is trying to plan a trip / travel
+    if (allMsgsStr.includes("plan") || allMsgsStr.includes("trip") || allMsgsStr.includes("itinerary") || allMsgsStr.includes("travel planner")) {
+      // Analyze what details the user has provided in their chat history
+      const hasDest = allMsgsStr.includes("delhi") || allMsgsStr.includes("jaipur") || allMsgsStr.includes("goa") || allMsgsStr.includes("mumbai") || allMsgsStr.includes("to ");
+      const hasDays = /\b\d+\s*(day|night)/.test(allMsgsStr);
+      const hasMembers = allMsgsStr.includes("adult") || allMsgsStr.includes("child") || allMsgsStr.includes("kid") || allMsgsStr.includes("senior") || allMsgsStr.includes("pet") || allMsgsStr.includes("people") || allMsgsStr.includes("pax");
+
+      if (!hasDest) {
+        return `🌸 **Namaste! I would be absolutely delighted to help you design the best and final travel plan for your upcoming trip.**
+
+To start crafting a fully customized, comfortable, and optimized plan, could you please tell me:
+1. **Where** are you planning to travel, and for **how many days**?
+2. What are your travel dates?`;
+      }
+
+      if (!hasMembers) {
+        return `✈️ **Wonderful! Planning a trip is exciting. To make it the most comfortable, safe, and custom-compatible trip, let me ask about your co-travelers:**
+
+Could you please share:
+- How many **Adults**, **Children**, and **Senior Citizens** are traveling?
+- Do you have any **Pets** joining you?
+- Do any travelers require senior-friendly or kid-friendly facilities (e.g. low-walking, wheelchair assistance, baby-seats, or pet-friendly accommodations)?`;
+      }
+
+      // If they gave destination and members, let's render the ultimate "best and final" travel plan fallback
+      return `🗺️ **Chalo Smart Travel Planner • BEST & FINAL ITINERARY**
+      
+*Planned for: ${userPreferences?.preferenceMode === 'cheapest' ? 'Maximum Savings' : 'Premium Comfort'} | Senior & Kid Compatible | Verified Transit Connectivity*
+
+### 🗓️ Day 1: Seamless Arrival & Local Exploration
+* **Scheduled Activities**: Arrive at destination. Smooth check-in, followed by a relaxed afternoon walk and a premium sunset viewpoint.
+* **Stay & Facilities**: Premium Comfort Resort (Equipped with high-speed lifts, wheelchair-accessible ramps for senior citizens, child play areas, and fully pet-friendly gardens).
+* **Transportation & Pricing**:
+  * **Option A**: *Uber XL* or *Ola SUV* (Highly recommended for families with luggage/seniors) - ₹450.
+  * **Option B**: *BluSmart Premium Sedan* (Eco-friendly, pristine cleanliness, no-cancellation peace of mind) - ₹380.
+* **Transit Connectivity**: Direct highway pickup via Airport terminal gate. Smooth 45-minute transit via Express Link.
+
+### 🗓️ Day 2: Culture, Comfort & Leisurely Sightseeing
+* **Scheduled Activities**: Guided vehicle tour of local palaces, heritage sites, and authentic local culinary lunch.
+* **Stay & Facilities**: Same resort. In-house medical desk available for seniors' comfort; custom kid-friendly mild spice menus.
+* **Transportation & Pricing**:
+  * **Chalo Outstation/Rental**: Private 8-hour hourly rental (Chalo Partner fleet) - ₹1,800. Fully air-conditioned with an experienced driver.
+  * **On-Demand**: Split-booking on *Zomato/Swiggy* for lunch delivery to your palace seating area to avoid heavy restaurant crowds for kids.
+* **Transit Connectivity**: Doorstep pickup. Optimized NH bypass routing to bypass urban bottlenecks.
+
+### 🗓️ Day 3: Scenic Relaxation & Smooth Return
+* **Scheduled Activities**: Souvenir shopping at local traditional markets, followed by comfortable departure transfer.
+* **Stay & Facilities**: Late check-out authorized. Express luggage handling included.
+* **Transportation & Pricing**:
+  * **Pre-booked Sedan**: Booking.com / Agoda partner vehicle - ₹550.
+  * **Alternate**: *Ola Prime Sedan* (Comfort-ride with professional driver) - ₹600.
+* **Transit Connectivity**: Clean NH-48 tollways. 1 hour 15 min return trip.
+
+💡 **Chalo Smart Saving Alert**: By bundle-booking your *Agoda Stay* and *Uber Rides* via Chalo One, you save **₹1,240** in direct affiliate cashback rewards!
+
+Would you like me to make any adjustments to this itinerary, or shall we proceed with securing these transit options?`;
+    }
 
     if (lastMsg.includes("jaipur to delhi") || lastMsg.includes("intercity") || lastMsg.includes("travel")) {
       return `🚗 **Chalo Travel Advisor Recommendation [Local AI]**\n\nFor a trip from **Jaipur to Delhi**:\n- **Cheapest Option**: BluSmart/Ola Intercity SUV/Sedan (shared with 4 people can cost as low as **₹850 per person**).\n- **Fastest Option**: Dedicated **Ola Sedan** via NH48 (**4h 45m**, approx **₹3,400 + ₹450 Tolls**).\n\n💡 **AI Saving Tip**: Booking a cab at 6:00 AM avoids the Gurgaon-Delhi border peak surcharges and saves up to **₹300**!`;

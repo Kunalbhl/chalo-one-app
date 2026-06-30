@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MART_ITEMS } from '../data';
 import { MartItem, UnifiedCart } from '../types';
-import { Search, ShoppingCart, Zap, Star, ShieldAlert, Heart, RefreshCw, BookmarkCheck, ArrowRight } from 'lucide-react';
+import { Search, ShoppingCart, Zap, Star, ShieldAlert, Heart, RefreshCw, BookmarkCheck, ArrowRight, SlidersHorizontal } from 'lucide-react';
 
 interface MartModuleProps {
   cart: UnifiedCart;
@@ -9,6 +9,9 @@ interface MartModuleProps {
   removeMartFromCart: (item: MartItem, platform: string) => void;
   preferenceMode: string;
   defaultFoodType?: 'Veg' | 'Non-Veg' | 'Eggetarian' | "Doesn't Matter";
+  setActiveTab?: (tab: string) => void;
+  connectedAccounts?: any;
+  currentSelectedLocation?: string;
 }
 
 export default function MartModule({
@@ -16,7 +19,10 @@ export default function MartModule({
   addMartToCart,
   removeMartFromCart,
   preferenceMode,
-  defaultFoodType
+  defaultFoodType,
+  setActiveTab,
+  connectedAccounts,
+  currentSelectedLocation
 }: MartModuleProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [recentSearches, setRecentSearches] = useState<string[]>(['Organic Milk', 'Brown Bread', 'Amul Butter']);
@@ -30,9 +36,17 @@ export default function MartModule({
   };
   const [dietFilter, setDietFilter] = useState<'All' | 'Veg' | 'Non-Veg' | 'Eggetarian'>(getInitialDiet());
 
-  // Additional Filter & Sort states for Mart
-  const [martSortBy, setMartSortBy] = useState<'price_asc' | 'price_desc' | 'speed' | 'default'>('default');
+  // Interactive local sorting preference state
+  const [localPreferenceMode, setLocalPreferenceMode] = useState<string>(preferenceMode || 'cheapest');
+  const [showLinkBanner, setShowLinkBanner] = useState(true);
   const [selectedBrand, setSelectedBrand] = useState<string>('All');
+
+  // Sync preferenceMode prop with local state
+  useEffect(() => {
+    if (preferenceMode) {
+      setLocalPreferenceMode(preferenceMode);
+    }
+  }, [preferenceMode]);
 
   const [savedLists, setSavedLists] = useState<string[]>([
     "Weekly Breakfast Essentials",
@@ -50,7 +64,7 @@ export default function MartModule({
   };
 
   // Handle filter items with advanced multi-platform sort
-  const filteredProducts = MART_ITEMS.filter(item => {
+  let filteredProducts = MART_ITEMS.filter(item => {
     const matchesSearch = searchQuery.trim() === '' || 
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
       item.brand.toLowerCase().includes(searchQuery.toLowerCase());
@@ -64,7 +78,33 @@ export default function MartModule({
     const matchesBrand = selectedBrand === 'All' || item.brand === selectedBrand;
     
     return matchesSearch && matchesCat && matchesDiet && matchesBrand;
-  }).sort((a, b) => {
+  });
+
+  // Dynamic search fallback item generator
+  if (searchQuery.trim() !== '' && filteredProducts.length === 0) {
+    const cleanQuery = searchQuery.trim();
+    const capitalizedName = cleanQuery.charAt(0).toUpperCase() + cleanQuery.slice(1);
+    
+    filteredProducts = [
+      {
+        id: `dynamic-${cleanQuery.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+        name: `${capitalizedName} (Fresh Pack)`,
+        brand: 'Chalo Fresh',
+        weightVolume: '1 Unit / Pack',
+        category: activeCategory !== 'All' ? activeCategory : 'Staples',
+        dietType: dietFilter !== 'All' ? dietFilter : 'Veg',
+        image: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+        prices: [
+          { platform: 'Blinkit', price: 90, discountedPrice: 79, deliveryTime: 9, inStock: true },
+          { platform: 'Zepto', price: 95, discountedPrice: 75, deliveryTime: 8, inStock: true },
+          { platform: 'Instamart', price: 89, discountedPrice: 78, deliveryTime: 11, inStock: true },
+          { platform: 'JioMart', price: 85, discountedPrice: 70, deliveryTime: 40, inStock: true }
+        ]
+      }
+    ];
+  }
+
+  filteredProducts.sort((a, b) => {
     // Helpers to find min price and delivery times across platforms
     const getMinPrice = (item: MartItem) => {
       const inStockPrices = item.prices.filter(p => p.inStock);
@@ -78,10 +118,16 @@ export default function MartModule({
       return Math.min(...inStockPrices.map(p => p.deliveryTime));
     };
 
-    if (martSortBy === 'price_asc') return getMinPrice(a) - getMinPrice(b);
-    if (martSortBy === 'price_desc') return getMinPrice(b) - getMinPrice(a);
-    if (martSortBy === 'speed') return getMinDelivery(a) - getMinDelivery(b);
-    return 0; // default
+    if (localPreferenceMode === 'cheapest') {
+      return getMinPrice(a) - getMinPrice(b);
+    } else if (localPreferenceMode === 'fastest') {
+      return getMinDelivery(a) - getMinDelivery(b);
+    } else if (localPreferenceMode === 'rated') {
+      // Sort by price or default since item-level rating is not explicitly in mock schema
+      return getMinPrice(a) - getMinPrice(b);
+    } else {
+      return 0; // default
+    }
   });
 
   const getQuantItemInCart = (id: string, platform: string) => {
@@ -111,6 +157,31 @@ export default function MartModule({
           <p className="text-xs text-gray-500">Side-by-side grocery comparisons: Blinkit, Zepto, Instamart, JioMart</p>
         </div>
       </div>
+
+      {showLinkBanner && (!connectedAccounts || (!connectedAccounts.blinkit && !connectedAccounts.zepto && !connectedAccounts.instamart)) && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-emerald-900 font-medium font-sans">
+          <div className="flex items-center space-x-2">
+            <span className="text-base shrink-0">💡</span>
+            <span>Link your Blinkit, Zepto, and Instamart accounts to sync active Passes, loyalty coins, and unlock waived delivery fees!</span>
+          </div>
+          <div className="flex items-center space-x-2 shrink-0">
+            <button 
+              type="button" 
+              onClick={() => { if (setActiveTab) setActiveTab('account'); }} 
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer"
+            >
+              Link Account
+            </button>
+            <button 
+              type="button" 
+              onClick={() => setShowLinkBanner(false)} 
+              className="text-emerald-500 hover:text-emerald-700 text-xs font-bold px-1.5 py-1"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modern Search bar */}
       <div className="space-y-2">
@@ -199,21 +270,24 @@ export default function MartModule({
           ))}
         </div>
 
-        {/* Advanced Filters & Sort Options */}
-        <div className="bg-gray-50 p-3 rounded-2xl border border-gray-150 space-y-2.5">
-          <div className="flex items-center justify-between text-[10px] font-black uppercase text-gray-500 font-mono pl-1">
-            <span>Filters & Sort Options</span>
-            <span className="text-emerald-700">Instant Commerce</span>
+        {/* Filters & Sort Panel */}
+        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-150 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-1">
+              <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 font-mono">Filters & Sort Options</span>
+            </div>
+            <span className="text-[10px] text-emerald-700 font-bold font-mono">App Preference Synced</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             {/* Diet choice */}
             <div>
-              <span className="block text-[8px] text-gray-400 font-bold uppercase mb-1">Diet Type</span>
+              <span className="block text-[8px] text-gray-400 font-bold uppercase mb-1 font-mono">Diet Type</span>
               <select
                 value={dietFilter}
                 onChange={(e) => setDietFilter(e.target.value as any)}
-                className="w-full bg-white border border-gray-250 text-[10.5px] px-2 py-1.5 rounded-xl text-gray-700 font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                className="w-full bg-white border border-gray-200 text-xs px-2.5 py-1.5 rounded-xl text-gray-700 font-bold focus:outline-none focus:ring-1 focus:ring-emerald-550 cursor-pointer"
               >
                 <option value="All">🍽 All Diets</option>
                 <option value="Veg">🟢 Pure Veg</option>
@@ -224,11 +298,11 @@ export default function MartModule({
 
             {/* Brand filter */}
             <div>
-              <span className="block text-[8px] text-gray-400 font-bold uppercase mb-1">Brand Filter</span>
+              <span className="block text-[8px] text-gray-400 font-bold uppercase mb-1 font-mono">Brand Filter</span>
               <select
                 value={selectedBrand}
                 onChange={(e) => setSelectedBrand(e.target.value)}
-                className="w-full bg-white border border-gray-250 text-[10.5px] px-2 py-1.5 rounded-xl text-gray-700 font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                className="w-full bg-white border border-gray-200 text-xs px-2.5 py-1.5 rounded-xl text-gray-700 font-bold focus:outline-none focus:ring-1 focus:ring-emerald-550 cursor-pointer"
               >
                 <option value="All">All Brands</option>
                 <option value="Amul">Amul</option>
@@ -240,50 +314,75 @@ export default function MartModule({
                 <option value="Lizol">Lizol</option>
               </select>
             </div>
+          </div>
 
-            {/* Sort selector */}
-            <div>
-              <span className="block text-[8px] text-gray-400 font-bold uppercase mb-1">Sort Items By</span>
-              <select
-                value={martSortBy}
-                onChange={(e) => setMartSortBy(e.target.value as any)}
-                className="w-full bg-white border border-gray-250 text-[10.5px] px-2 py-1.5 rounded-xl text-gray-700 font-bold focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-              >
-                <option value="default">★ Popularity</option>
-                <option value="price_asc">₹ Price: Low to High</option>
-                <option value="price_desc">₹ Price: High to Low</option>
-                <option value="speed">⚡ Delivery: Fastest first</option>
-              </select>
+          {/* Interactive Sort Row */}
+          <div>
+            <span className="block text-[8px] text-slate-455 font-black uppercase mb-1 font-mono">Sort Options</span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {[
+                { val: 'cheapest', label: '💰 Cheapest First' },
+                { val: 'fastest', label: '⚡ Fastest Duration' },
+                { val: 'rated', label: '⭐ Highest Rating' },
+                { val: 'ai', label: '🧠 Smart Recommended' }
+              ].map(opt => (
+                <button
+                  key={opt.val}
+                  type="button"
+                  onClick={() => setLocalPreferenceMode(opt.val)}
+                  className={`px-2 py-1.5 rounded-xl text-[10.5px] font-bold border transition text-center cursor-pointer ${
+                    localPreferenceMode === opt.val
+                      ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
+                      : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
           </div>
         </div>
       </div>
 
       {/* Smart Saved lists & repeat order sidebar/widget */}
-      <div className="bg-emerald-50/70 p-3.5 rounded-2xl border border-emerald-100 space-y-2">
-        <div className="flex items-center space-x-1">
-          <BookmarkCheck className="w-4.5 h-4.5 text-emerald-700" />
-          <h3 className="text-xs font-extrabold uppercase tracking-wider text-emerald-800">Repeat Orders & Saved Lists</h3>
+      {!searchQuery.trim() && (
+        <div className="bg-emerald-50/70 p-3.5 rounded-2xl border border-emerald-100 space-y-2">
+          <div className="flex items-center space-x-1">
+            <BookmarkCheck className="w-4.5 h-4.5 text-emerald-700" />
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-emerald-800">Repeat Orders & Saved Lists</h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-1">
+            {savedLists.map((listName, i) => (
+              <div key={i} className="bg-white p-2.5 rounded-xl border border-emerald-150 flex flex-col justify-between space-y-2">
+                <span className="text-[11px] font-bold text-gray-800 leading-tight block">{listName}</span>
+                <button
+                  type="button"
+                  onClick={() => handleSmartReorder(listName)}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold py-1 px-2 rounded-lg transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                >
+                  <RefreshCw className="w-3 h-3 text-emerald-100" />
+                  <span>Quick Reorder</span>
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-1">
-          {savedLists.map((listName, i) => (
-            <div key={i} className="bg-white p-2.5 rounded-xl border border-emerald-150 flex flex-col justify-between space-y-2">
-              <span className="text-[11px] font-bold text-gray-800 leading-tight block">{listName}</span>
-              <button
-                type="button"
-                onClick={() => handleSmartReorder(listName)}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold py-1 px-2 rounded-lg transition-all flex items-center justify-center space-x-1 cursor-pointer"
-              >
-                <RefreshCw className="w-3 h-3 text-emerald-100" />
-                <span>Quick Reorder</span>
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
+      )}
 
       {/* Products list detail */}
       <div className="space-y-4">
+        {searchQuery.trim() !== '' && (
+          <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-2xl flex justify-between items-center text-xs text-emerald-900 font-bold font-sans">
+            <span className="flex items-center space-x-1.5">
+              <span>🔍</span>
+              <span>Showing search results for "{searchQuery}"</span>
+            </span>
+            <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-lg text-[10px]">
+              {filteredProducts.length} items found
+            </span>
+          </div>
+        )}
+
         {filteredProducts.map(product => {
           // Sort quotes according to preference
           let quotes = [...product.prices];

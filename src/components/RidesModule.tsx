@@ -12,6 +12,8 @@ interface RidesModuleProps {
   walletBalance: number;
   deductWalletCoins: (rs: number) => void;
   setActiveTab?: (tab: string) => void;
+  connectedAccounts?: any;
+  currentSelectedLocation?: string;
 }
 
 export default function RidesModule({
@@ -20,9 +22,11 @@ export default function RidesModule({
   addOrderToActivity,
   walletBalance,
   deductWalletCoins,
-  setActiveTab
+  setActiveTab,
+  connectedAccounts,
+  currentSelectedLocation
 }: RidesModuleProps) {
-  const [pickup, setPickup] = useState('My Current Location (Blinkit HQ, Bangalore)');
+  const [pickup, setPickup] = useState(currentSelectedLocation || 'Koramangala, Bangalore');
   const [destination, setDestination] = useState('');
   const [pickupCoords, setPickupCoords] = useState<{lat: number, lng: number}>({ lat: 12.9352, lng: 77.6245 }); // default Koramangala
   const [destCoords, setDestCoords] = useState<{lat: number, lng: number} | null>(null);
@@ -32,6 +36,24 @@ export default function RidesModule({
   const [viewingDetailRide, setViewingDetailRide] = useState<any | null>(null);
   const [sosTriggered, setSosTriggered] = useState(false);
   const [selectedVehicleType, setSelectedVehicleType] = useState<'All' | 'Bike' | 'Auto' | 'Economy' | 'Premium'>('All');
+
+  // Interactive local sorting preference state
+  const [localPreferenceMode, setLocalPreferenceMode] = useState<string>(preferenceMode || 'cheapest');
+  const [showLinkBanner, setShowLinkBanner] = useState(true);
+
+  // Sync preferenceMode prop with local state
+  useEffect(() => {
+    if (preferenceMode) {
+      setLocalPreferenceMode(preferenceMode);
+    }
+  }, [preferenceMode]);
+
+  // Sync pickup when currentSelectedLocation changes
+  useEffect(() => {
+    if (currentSelectedLocation) {
+      setPickup(currentSelectedLocation);
+    }
+  }, [currentSelectedLocation]);
 
   // Advanced Ride Booking Flow States
   const [redirectingToIntercity, setRedirectingToIntercity] = useState(false);
@@ -148,8 +170,8 @@ export default function RidesModule({
         calculatedDistance = Math.max(3, (pickup.length + destination.length) % 25 + 5);
       }
 
-      // Check if non-local (distance > 35 km)
-      if (calculatedDistance > 35) {
+      // Check if non-local (distance > 50 km)
+      if (calculatedDistance > 50) {
         localStorage.setItem('chalo_intercity_pickup', pickup);
         localStorage.setItem('chalo_intercity_destination', destination);
         setRedirectingToIntercity(true);
@@ -199,8 +221,8 @@ export default function RidesModule({
     setTimeout(() => {
       const calculatedDistance = getHaversineDistance(pickupCoords.lat, pickupCoords.lng, lat, lng);
 
-      // Check if non-local (distance > 35 km)
-      if (calculatedDistance > 35) {
+      // Check if non-local (distance > 50 km)
+      if (calculatedDistance > 50) {
         localStorage.setItem('chalo_intercity_pickup', pickup);
         localStorage.setItem('chalo_intercity_destination', destName);
         setRedirectingToIntercity(true);
@@ -367,7 +389,7 @@ export default function RidesModule({
     setIsReceiptModalOpen(true);
   };
 
-  // Filter based on selected UI Category tab
+  // Filter based on selected UI Category tab and sort dynamically by local preference
   const filteredRides = comparedRides.filter(ride => {
     if (selectedVehicleType === 'All') return true;
     if (selectedVehicleType === 'Bike') return ride.vehicleType === 'Bike';
@@ -375,6 +397,22 @@ export default function RidesModule({
     if (selectedVehicleType === 'Economy') return ['Mini', 'Sedan'].includes(ride.vehicleType);
     if (selectedVehicleType === 'Premium') return ['SUV', 'Premium', 'XL'].includes(ride.vehicleType);
     return true;
+  });
+
+  filteredRides.sort((a, b) => {
+    if (localPreferenceMode === 'cheapest') {
+      return a.price - b.price;
+    } else if (localPreferenceMode === 'fastest') {
+      return a.eta - b.eta;
+    } else if (localPreferenceMode === 'rated') {
+      return b.driverRating - a.driverRating;
+    } else {
+      const idxA = defaultRidesOrder ? defaultRidesOrder.indexOf(a.platform) : -1;
+      const idxB = defaultRidesOrder ? defaultRidesOrder.indexOf(b.platform) : -1;
+      const valA = idxA === -1 ? 99 : idxA;
+      const valB = idxB === -1 ? 99 : idxB;
+      return valA - valB;
+    }
   });
 
   return (
@@ -392,7 +430,7 @@ export default function RidesModule({
             <div className="p-4 bg-amber-400 text-slate-950 rounded-full animate-bounce mb-4">
               <Navigation className="w-8 h-8" />
             </div>
-            <h3 className="text-xl font-display font-black text-white">Non-Local Trip Detected (&gt;35 km)</h3>
+            <h3 className="text-xl font-display font-black text-white">Non-Local Trip Detected (&gt;50 km)</h3>
             <p className="text-gray-300 text-xs max-w-md mt-2 leading-relaxed">
               This route spans outside municipal limits. To guarantee lowest outstation tariff, professional certified highway drivers, and verified safety tools, we are <strong className="text-amber-400 font-bold">redirecting you to the Chalo Intercity Lounge</strong> automatically...
             </p>
@@ -427,6 +465,31 @@ export default function RidesModule({
               <p className="text-xs text-gray-500 font-medium">Live aggregated cabs from Ola, Uber, Rapido, BluSmart & Namma Yatri</p>
             </div>
           </div>
+
+          {showLinkBanner && (!connectedAccounts || (!connectedAccounts.uber && !connectedAccounts.ola && !connectedAccounts.rapido)) && (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-amber-900 font-medium font-sans">
+              <div className="flex items-center space-x-2">
+                <span className="text-base shrink-0">💡</span>
+                <span>Link your Ola/Uber accounts to instantly sync personalized corporate discounts and unlock priority dispatch benefits!</span>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0">
+                <button 
+                  type="button" 
+                  onClick={() => { if (setActiveTab) setActiveTab('account'); }} 
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer"
+                >
+                  Link Account
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setShowLinkBanner(false)} 
+                  className="text-amber-500 hover:text-amber-700 text-xs font-bold px-1.5 py-1"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
 
           <form onSubmit={handleCompare} className="p-4 bg-white rounded-2xl shadow-xs border border-gray-150 space-y-4">
             <ChaloMapView 
@@ -522,13 +585,33 @@ export default function RidesModule({
                 ))}
               </div>
 
-              {/* Preference and Sorting Note */}
-              <div className="flex items-center justify-between text-[11px] bg-amber-50 text-amber-800 px-3 py-2 rounded-xl border border-amber-100">
-                <span className="font-mono uppercase tracking-wider font-extrabold flex items-center">
-                  <Shield className="w-3 h-3 text-amber-600 mr-1" />
-                  Preference: {preferenceMode === 'cheapest' ? '💰 Cheapest First' : preferenceMode === 'fastest' ? '⚡ Fastest' : preferenceMode === 'rated' ? '⭐ Safest/Highly-Rated' : '🎯 Favorite Apps Rank'}
-                </span>
-                <span className="font-bold">{filteredRides.length} Cabs Syncing</span>
+              {/* Interactive Sort Panel */}
+              <div className="bg-amber-50/50 p-3.5 rounded-2xl border border-amber-250/60 space-y-2">
+                <div className="flex items-center justify-between text-[10px] font-black uppercase text-amber-800 font-mono">
+                  <span className="flex items-center"><SlidersHorizontal className="w-3.5 h-3.5 mr-1" /> Refine Results</span>
+                  <span className="text-amber-700">{filteredRides.length} Cabs Syncing</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {[
+                    { val: 'cheapest', label: '💰 Cheapest First' },
+                    { val: 'fastest', label: '⚡ Fastest Duration' },
+                    { val: 'rated', label: '⭐ Highest Rating' },
+                    { val: 'ai', label: '🧠 Smart Recommended' }
+                  ].map(opt => (
+                    <button
+                      key={opt.val}
+                      type="button"
+                      onClick={() => setLocalPreferenceMode(opt.val)}
+                      className={`px-2 py-1.5 rounded-xl text-[10.5px] font-bold border transition text-center cursor-pointer ${
+                        localPreferenceMode === opt.val
+                          ? 'bg-amber-500 border-amber-500 text-white shadow-xs'
+                          : 'bg-white border-gray-250 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Aggregated Ride Cards */}
@@ -1027,6 +1110,10 @@ export default function RidesModule({
                     initialValue={destination || "Koramangala, Bengaluru"}
                     onLocationSelect={() => {}}
                     showMap={true}
+                    pickupCoords={pickupCoords}
+                    destCoords={destCoords || { lat: 12.9716, lng: 77.5946 }}
+                    isTrackingMode={true}
+                    tripLiveStatus={tripLiveStatus}
                   />
                 </div>
 

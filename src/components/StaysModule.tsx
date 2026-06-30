@@ -7,9 +7,20 @@ import ChaloMapView from './ChaloMapView';
 interface StaysModuleProps {
   addOrderToActivity: (order: any) => void;
   userProfile?: any;
+  setActiveTab?: (tab: string) => void;
+  connectedAccounts?: any;
+  currentSelectedLocation?: string;
+  preferenceMode: string;
 }
 
-export default function StaysModule({ addOrderToActivity, userProfile }: StaysModuleProps) {
+export default function StaysModule({ 
+  addOrderToActivity, 
+  userProfile,
+  setActiveTab,
+  connectedAccounts,
+  currentSelectedLocation,
+  preferenceMode
+}: StaysModuleProps) {
   const [destination, setDestination] = useState('Goa');
   const [recentSearches, setRecentSearches] = useState<string[]>(['Goa', 'Jaipur', 'Delhi']);
   const [searchFocused, setSearchFocused] = useState(false);
@@ -19,6 +30,17 @@ export default function StaysModule({ addOrderToActivity, userProfile }: StaysMo
   const [rooms, setRooms] = useState(1);
   const [hasSearched, setHasSearched] = useState(true);
   const [selectedBookings, setSelectedBookings] = useState<{ [hotelId: string]: string }>({});
+
+  // Interactive local sorting preference state
+  const [localPreferenceMode, setLocalPreferenceMode] = useState<string>(preferenceMode || 'cheapest');
+  const [showLinkBanner, setShowLinkBanner] = useState(true);
+
+  // Sync preferenceMode prop with local state
+  React.useEffect(() => {
+    if (preferenceMode) {
+      setLocalPreferenceMode(preferenceMode);
+    }
+  }, [preferenceMode]);
 
   // Extended Hotel Details & Booking Flow states
   const [activeStep, setActiveStep] = useState<'list' | 'detail' | 'guest' | 'payment'>('list');
@@ -210,11 +232,16 @@ export default function StaysModule({ addOrderToActivity, userProfile }: StaysMo
       return Math.min(...h.comparisons.map(c => c.pricePerNight));
     };
 
-    if (staySortBy === 'price_asc') return getCheapestPrice(a) - getCheapestPrice(b);
-    if (staySortBy === 'price_desc') return getCheapestPrice(b) - getCheapestPrice(a);
-    if (staySortBy === 'rating') return b.rating - a.rating;
-    if (staySortBy === 'stars') return b.stars - a.stars;
-    return 0;
+    if (localPreferenceMode === 'cheapest') {
+      return getCheapestPrice(a) - getCheapestPrice(b);
+    } else if (localPreferenceMode === 'fastest') {
+      // Direct high quality properties sort (star classification descending)
+      return b.stars - a.stars;
+    } else if (localPreferenceMode === 'rated') {
+      return b.rating - a.rating;
+    } else {
+      return 0; // default
+    }
   });
 
   return (
@@ -232,6 +259,31 @@ export default function StaysModule({ addOrderToActivity, userProfile }: StaysMo
               <p className="text-xs text-gray-500 font-medium">Live price comparison across Agoda, Booking.com, MMT & Goibibo</p>
             </div>
           </div>
+
+          {showLinkBanner && (!connectedAccounts || (!connectedAccounts.agoda && !connectedAccounts.booking && !connectedAccounts.mmt)) && (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-indigo-900 font-medium font-sans">
+              <div className="flex items-center space-x-2">
+                <span className="text-base shrink-0">💡</span>
+                <span>Link your Booking.com, Agoda, and MakeMyTrip accounts to sync Genius/Agoda VIP tiers, loyalty cashbacks, and special corporate room tariffs!</span>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0">
+                <button 
+                  type="button" 
+                  onClick={() => { if (setActiveTab) setActiveTab('account'); }} 
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer"
+                >
+                  Link Account
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setShowLinkBanner(false)} 
+                  className="text-indigo-500 hover:text-indigo-700 text-xs font-bold px-1.5 py-1"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Stay Booking Lookup form */}
           <form onSubmit={(e) => {
@@ -361,26 +413,24 @@ export default function StaysModule({ addOrderToActivity, userProfile }: StaysMo
           {/* Scanned Deals list match */}
           {hasSearched && (
             <div className="space-y-4 pt-1">
-              {/* Hotel Filter and Sort Selector Panel */}
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
-                <div className="flex items-center justify-between text-xs font-bold text-slate-750">
-                  <span className="flex items-center space-x-1">
+              {/* Filters & Sort Panel */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-1">
                     <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>Hotel Sorting & Filters</span>
-                  </span>
-                  <span className="text-[10px] font-mono text-gray-400 font-bold">
-                    Aggregated ({filteredHotels.length} stays found)
-                  </span>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 font-mono">Filters & Sort Options</span>
+                  </div>
+                  <span className="text-[10px] text-indigo-700 font-bold font-mono">App Preference Synced</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {/* Star rating filter */}
                   <div>
-                    <label className="block text-[8px] text-gray-400 uppercase font-mono font-bold mb-1">Star Class</label>
+                    <span className="block text-[8px] text-gray-400 font-bold uppercase mb-1 font-mono">Star Class</span>
                     <select
                       value={stayFilterStars}
                       onChange={(e) => setStayFilterStars(e.target.value)}
-                      className="w-full bg-white border border-slate-200 text-xs px-2 py-1.5 rounded-xl text-slate-700 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                      className="w-full bg-white border border-slate-200 text-xs px-2.5 py-1.5 rounded-xl text-slate-700 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                     >
                       <option value="All">All Properties</option>
                       <option value="3">3 Star Only</option>
@@ -391,33 +441,44 @@ export default function StaysModule({ addOrderToActivity, userProfile }: StaysMo
 
                   {/* Booking Platform filter */}
                   <div>
-                    <label className="block text-[8px] text-gray-400 uppercase font-mono font-bold mb-1">Provider Source</label>
+                    <span className="block text-[8px] text-gray-400 font-bold uppercase mb-1 font-mono">Provider Source</span>
                     <select
                       value={stayFilterPlatform}
                       onChange={(e) => setStayFilterPlatform(e.target.value)}
-                      className="w-full bg-white border border-slate-200 text-xs px-2 py-1.5 rounded-xl text-slate-700 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                      className="w-full bg-white border border-slate-200 text-xs px-2.5 py-1.5 rounded-xl text-slate-700 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                     >
                       <option value="All">All Portals</option>
-                      <option value="Agoda">Agoda</option>
-                      <option value="Booking.com">Booking.com</option>
-                      <option value="MakeMyTrip">MakeMyTrip</option>
-                      <option value="Goibibo">Goibibo</option>
+                      <option value="Agoda">Agoda Only</option>
+                      <option value="Booking.com">Booking.com Only</option>
+                      <option value="MakeMyTrip">MakeMyTrip Only</option>
+                      <option value="Goibibo">Goibibo Only</option>
                     </select>
                   </div>
+                </div>
 
-                  {/* Sort selector */}
-                  <div>
-                    <label className="block text-[8px] text-gray-400 uppercase font-mono font-bold mb-1">Sort hotels by</label>
-                    <select
-                      value={staySortBy}
-                      onChange={(e) => setStaySortBy(e.target.value as any)}
-                      className="w-full bg-indigo-50 border border-indigo-200 text-xs px-2 py-1.5 rounded-xl text-indigo-900 font-black focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                    >
-                      <option value="rating">★ Guest Reviews & Ratings</option>
-                      <option value="price_asc">₹ Price: Low to High</option>
-                      <option value="price_desc">₹ Price: High to Low</option>
-                      <option value="stars">🎖 Star Classification</option>
-                    </select>
+                {/* Interactive Sort Row */}
+                <div>
+                  <span className="block text-[8px] text-slate-455 font-black uppercase mb-1 font-mono">Sort Options</span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                    {[
+                      { val: 'cheapest', label: '💰 Cheapest First' },
+                      { val: 'fastest', label: '⚡ Star Rating' },
+                      { val: 'rated', label: '⭐ Highest Rating' },
+                      { val: 'ai', label: '🧠 Smart Recommended' }
+                    ].map(opt => (
+                      <button
+                        key={opt.val}
+                        type="button"
+                        onClick={() => setLocalPreferenceMode(opt.val)}
+                        className={`px-2 py-1.5 rounded-xl text-[10.5px] font-bold border transition text-center cursor-pointer ${
+                          localPreferenceMode === opt.val
+                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
