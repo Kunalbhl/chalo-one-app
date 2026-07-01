@@ -31,6 +31,20 @@ service cloud.firestore {
       allow create: if isValidId(userId);
       allow update: if isValidId(userId);
       allow delete: if isSuperAdmin();
+
+      // Sub-collection: referrals
+      match /referrals/{referralId} {
+        allow read: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email == userId);
+        allow create: if isSignedIn();
+        allow update, delete: if isSuperAdmin();
+      }
+    }
+
+    // Collection: referral_codes
+    match /referral_codes/{code} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSuperAdmin();
     }
 
     // Collection: affiliates

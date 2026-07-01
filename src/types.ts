@@ -136,6 +136,7 @@ export interface IntercityOption {
   tollCharges: number;
   fuelCost: number;
   comfortScore: number; // out of 10
+  calculatedDistance?: number;
 }
 
 // 3. Food Interface

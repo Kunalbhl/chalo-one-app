@@ -83,13 +83,17 @@ async function startServer() {
       return res.json({ text: responseText });
 
     } catch (error: any) {
-      console.error("Gemini API Error:", error);
+      console.error("Gemini API Error caught inside server:", error);
       // Fail gracefully: fallback to local heuristic
       try {
+        const errorStr = (error && (error.message || error.stack || JSON.stringify(error))) || "";
+        const isBilling = errorStr.includes("prepayment") || errorStr.includes("RESOURCE_EXHAUSTED") || errorStr.includes("429") || error?.status === 429;
+        
         const fallbackText = getLocalAIResponse(req.body.messages || [], req.body.userPreferences);
         return res.json({ 
-          text: `[Fallback Response due to SDK/Network error] ${fallbackText}`,
-          isFallback: true 
+          text: fallbackText,
+          isFallback: true,
+          isBillingError: isBilling
         });
       } catch (e) {
         return res.status(500).json({ error: "Failed to generate AI response: " + error.message });

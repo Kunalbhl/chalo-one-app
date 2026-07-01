@@ -97,6 +97,75 @@ function ChaloMapViewInner({
 
   const map = useMap();
 
+  // Realtime Geolocation radar states
+  const [isRealtimeRadar, setIsRealtimeRadar] = useState(false);
+  const [liveUserLocation, setLiveUserLocation] = useState<{lat: number, lng: number} | null>(null);
+  const [radarCabs, setRadarCabs] = useState<any[]>([]);
+
+  // Geolocation watch effect
+  useEffect(() => {
+    if (!isRealtimeRadar) {
+      setLiveUserLocation(null);
+      setRadarCabs([]);
+      return;
+    }
+
+    let watchId: number | null = null;
+    
+    const handleSuccess = (position: GeolocationPosition) => {
+      const uCoords = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude
+      };
+      setLiveUserLocation(uCoords);
+      
+      // Update map center
+      if (map) {
+        map.panTo(uCoords);
+      }
+
+      // Generate simulated nearby cab locations
+      setRadarCabs([
+        { id: 'radar-cab-1', name: '🚗 Uber Sedan', lat: uCoords.lat + 0.002, lng: uCoords.lng + 0.0025, status: 'Active (2m away)' },
+        { id: 'radar-cab-2', name: '🛺 Ola Auto', lat: uCoords.lat - 0.0018, lng: uCoords.lng + 0.003, status: 'Cruising (1m away)' },
+        { id: 'radar-cab-3', name: '🏍️ Rapido Bike', lat: uCoords.lat + 0.0015, lng: uCoords.lng - 0.002, status: 'Assigned (3m away)' }
+      ]);
+    };
+
+    const handleError = (error: GeolocationPositionError) => {
+      console.warn("Realtime watch geolocation failed", error);
+      // Fallback coordinates (Koramangala, Bengaluru) if geolocation is blocked/unavailable
+      const fallbackCoords = selectedCoords || pickupCoords || { lat: 12.9352, lng: 77.6245 };
+      setLiveUserLocation(fallbackCoords);
+      
+      if (map) {
+        map.panTo(fallbackCoords);
+      }
+
+      setRadarCabs([
+        { id: 'radar-cab-1', name: '🚗 Uber Sedan', lat: fallbackCoords.lat + 0.002, lng: fallbackCoords.lng + 0.0025, status: 'Active (2m away)' },
+        { id: 'radar-cab-2', name: '🛺 Ola Auto', lat: fallbackCoords.lat - 0.0018, lng: fallbackCoords.lng + 0.003, status: 'Cruising (1m away)' },
+        { id: 'radar-cab-3', name: '🏍️ Rapido Bike', lat: fallbackCoords.lat + 0.0015, lng: fallbackCoords.lng - 0.002, status: 'Assigned (3m away)' }
+      ]);
+    };
+
+    if (navigator.geolocation) {
+      watchId = navigator.geolocation.watchPosition(handleSuccess, handleError, {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      });
+    } else {
+      handleError({} as any);
+    }
+
+    return () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+    };
+  }, [isRealtimeRadar, map, selectedCoords, pickupCoords]);
+
   // Re-center map to focus on route or pickup point when tracking goes live
   useEffect(() => {
     if (isTrackingMode && pickupCoords && map) {
@@ -396,18 +465,61 @@ function ChaloMapViewInner({
         )}
       </div>
 
+      {/* Realtime Tracking Radar Toggle */}
+      {showMap && (
+        <div className="flex items-center justify-between p-3 bg-slate-100 rounded-2xl border border-slate-200/60 mb-2 text-xs shadow-xs">
+          <div className="flex items-center space-x-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isRealtimeRadar ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isRealtimeRadar ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+            </span>
+            <div>
+              <span className="font-black text-slate-800 uppercase tracking-wider text-[10px] font-mono block leading-none">Chalo Live GPS Radar</span>
+              <span className="text-[9px] text-slate-500 mt-0.5 block font-semibold">Overlay active nearby cabs & your live position</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            id="realtime-tracking-radar-toggle"
+            onClick={() => setIsRealtimeRadar(!isRealtimeRadar)}
+            className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${isRealtimeRadar ? 'bg-emerald-600' : 'bg-slate-350'}`}
+          >
+            <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${isRealtimeRadar ? 'translate-x-5' : 'translate-x-0'}`} />
+          </button>
+        </div>
+      )}
+
       {/* Embedded Map Widget */}
       {showMap && (
         <div className={`w-full ${isTrackingMode ? 'h-full' : 'h-44'} rounded-2xl overflow-hidden border border-slate-200 relative bg-slate-100 shadow-inner group`}>
           <Map
-            center={isTrackingMode && pickupCoords ? pickupCoords : (selectedCoords || { lat: 12.9716, lng: 77.5946 })}
-            zoom={isTrackingMode ? 14 : 14}
+            center={isRealtimeRadar && liveUserLocation ? liveUserLocation : (isTrackingMode && pickupCoords ? pickupCoords : (selectedCoords || { lat: 12.9716, lng: 77.5946 }))}
+            zoom={isRealtimeRadar ? 15 : (isTrackingMode ? 14 : 14)}
             mapTypeId={mapType}
             internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
             style={{ width: '100%', height: '100%' }}
             disableDefaultUI={false}
           >
             <LiveMapSearch />
+
+            {/* Live user position marker on Map */}
+            {isRealtimeRadar && liveUserLocation && (
+              <Marker
+                position={liveUserLocation}
+                title="Your Current Location (Live GPS)"
+                label="🌟"
+              />
+            )}
+
+            {/* Simulated live cabs nearby */}
+            {isRealtimeRadar && radarCabs.map((cab) => (
+              <Marker
+                key={cab.id}
+                position={{ lat: cab.lat, lng: cab.lng }}
+                title={`${cab.name} - ${cab.status}`}
+                label={cab.id === 'radar-cab-1' ? '🚗' : cab.id === 'radar-cab-2' ? '🛺' : '🏍️'}
+              />
+            ))}
 
             {/* Tracking Elements on Google Map */}
             {isTrackingMode && pickupCoords && (

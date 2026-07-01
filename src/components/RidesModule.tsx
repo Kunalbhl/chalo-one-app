@@ -14,6 +14,8 @@ interface RidesModuleProps {
   setActiveTab?: (tab: string) => void;
   connectedAccounts?: any;
   currentSelectedLocation?: string;
+  redirectToLinkedAccounts?: () => void;
+  onBackRegister?: (handler: (() => boolean) | null) => void;
 }
 
 export default function RidesModule({
@@ -24,7 +26,9 @@ export default function RidesModule({
   deductWalletCoins,
   setActiveTab,
   connectedAccounts,
-  currentSelectedLocation
+  currentSelectedLocation,
+  redirectToLinkedAccounts,
+  onBackRegister
 }: RidesModuleProps) {
   const [pickup, setPickup] = useState(currentSelectedLocation || 'Koramangala, Bangalore');
   const [destination, setDestination] = useState('');
@@ -54,6 +58,33 @@ export default function RidesModule({
       setPickup(currentSelectedLocation);
     }
   }, [currentSelectedLocation]);
+
+  // Register internal back handler
+  useEffect(() => {
+    if (onBackRegister) {
+      if (selectedRide || viewingDetailRide) {
+        onBackRegister(() => {
+          if (selectedRide) {
+            setSelectedRide(null);
+            return true;
+          }
+          if (viewingDetailRide) {
+            setViewingDetailRide(null);
+            setAddedStops([]);
+            setHourlyPackage('standard');
+            setIsPickupAdjusted(false);
+            return true;
+          }
+          return false;
+        });
+      } else {
+        onBackRegister(null);
+      }
+    }
+    return () => {
+      if (onBackRegister) onBackRegister(null);
+    };
+  }, [selectedRide, viewingDetailRide, onBackRegister]);
 
   // Advanced Ride Booking Flow States
   const [redirectingToIntercity, setRedirectingToIntercity] = useState(false);
@@ -416,7 +447,7 @@ export default function RidesModule({
   });
 
   return (
-    <div id="rides_module_container" className="p-4 max-w-6xl mx-auto space-y-6 font-sans text-gray-800">
+    <div id="rides_module_container" className="p-4 max-w-6xl mx-auto w-full space-y-6 font-sans text-gray-800">
       
       {/* Dynamic Non-Local Intercity Redirection Banner Overlay */}
       <AnimatePresence>
@@ -466,24 +497,29 @@ export default function RidesModule({
             </div>
           </div>
 
-          {showLinkBanner && (!connectedAccounts || (!connectedAccounts.uber && !connectedAccounts.ola && !connectedAccounts.rapido)) && (
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-amber-900 font-medium font-sans">
+          {showLinkBanner && (!connectedAccounts || !connectedAccounts.uber || !connectedAccounts.ola || !connectedAccounts.rapido) && (
+            <div 
+              onClick={() => { if (redirectToLinkedAccounts) { redirectToLinkedAccounts(); } else if (setActiveTab) { setActiveTab('account'); } }}
+              className="bg-amber-50 hover:bg-amber-100/70 border border-amber-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-amber-900 font-medium font-sans cursor-pointer transition-all shadow-xs group"
+            >
               <div className="flex items-center space-x-2">
-                <span className="text-base shrink-0">💡</span>
-                <span>Link your Ola/Uber accounts to instantly sync personalized corporate discounts and unlock priority dispatch benefits!</span>
+                <span className="text-base shrink-0 group-hover:scale-110 transition">💡</span>
+                <span>
+                  Link your <strong className="font-bold text-amber-950">Uber, Ola, and Rapido</strong> accounts to instantly sync personalized corporate discounts and unlock priority dispatch benefits!
+                </span>
               </div>
               <div className="flex items-center space-x-2 shrink-0">
+                <span className="bg-amber-600 group-hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition">
+                  Link Now ➔
+                </span>
                 <button 
                   type="button" 
-                  onClick={() => { if (setActiveTab) setActiveTab('account'); }} 
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer"
-                >
-                  Link Account
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => setShowLinkBanner(false)} 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowLinkBanner(false);
+                  }} 
                   className="text-amber-500 hover:text-amber-700 text-xs font-bold px-1.5 py-1"
+                  title="Dismiss banner"
                 >
                   ✕
                 </button>
@@ -1005,33 +1041,48 @@ export default function RidesModule({
                 <div className="space-y-2 text-xs text-slate-700 font-medium">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Base ride price</span>
-                    <span className="font-mono">₹{originalPrice}</span>
+                    <span className="font-mono">₹{Math.round(originalPrice * 0.90)}</span>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">GST Taxes (5% CGST/SGST)</span>
+                    <span className="font-mono text-slate-550">₹{Math.round(originalPrice * 0.05)} (included)</span>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Highway Tolls & Parking Surcharges</span>
+                    <span className="font-mono text-slate-550">₹{Math.round(originalPrice * 0.05)} (included)</span>
                   </div>
 
                   {addedStops.length > 0 && (
                     <div className="flex justify-between">
                       <span className="text-slate-500">Stops surcharge ({addedStops.length} stops)</span>
-                      <span className="font-mono text-indigo-700 font-bold">+₹{stopsFare}</span>
+                      <span className="font-mono text-indigo-750 font-bold">+₹{stopsFare}</span>
                     </div>
                   )}
 
                   {hourlyPackage !== 'standard' && (
                     <div className="flex justify-between">
                       <span className="text-slate-500">Private rental package</span>
-                      <span className="font-mono text-indigo-700 font-bold">+₹{hourlyFare}</span>
+                      <span className="font-mono text-indigo-750 font-bold">+₹{hourlyFare}</span>
                     </div>
                   )}
 
                   {isPickupAdjusted && (
                     <div className="flex justify-between">
                       <span className="text-slate-500">Adjusted pickup surcharge</span>
-                      <span className="font-mono text-indigo-700 font-bold">+₹{adjustedPickupFare}</span>
+                      <span className="font-mono text-indigo-750 font-bold">+₹{adjustedPickupFare}</span>
                     </div>
                   )}
 
                   <div className="flex justify-between pt-2 border-t border-slate-200/80">
-                    <span className="text-slate-500">Platform Handling Fees (5% convenience)</span>
+                    <span className="text-slate-500">Platform Convenience Fees (5%)</span>
                     <span className="font-mono text-slate-500 font-semibold">₹{platformFees} (included)</span>
+                  </div>
+
+                  <div className="flex justify-between text-rose-600">
+                    <span>Applied referral/promo discount</span>
+                    <span className="font-mono font-bold">-₹0</span>
                   </div>
 
                   <div className="flex justify-between pt-2.5 border-t border-slate-200 text-sm font-black text-slate-900 font-display">

@@ -366,7 +366,7 @@ export default function UnifiedCart({
   const suggestions = getSuggestions();
 
   return (
-    <div id="unified_cart_container" className="p-4 max-w-xl mx-auto space-y-4 font-sans text-gray-800">
+    <div id="unified_cart_container" className="p-4 max-w-6xl mx-auto w-full space-y-4 font-sans text-gray-800">
       <div className="flex items-center space-x-2 pb-2">
         <div className="p-2 bg-amber-100 rounded-lg text-amber-700">
           <ShoppingBag className="w-6 h-6" />

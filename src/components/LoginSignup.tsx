@@ -204,7 +204,7 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
     onLoginSuccess(authenticatedUser);
   };
 
-  const handleSignupSubmit = (e: React.FormEvent) => {
+  const handleSignupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim() || !phone.trim() || !dob.trim() || !password.trim()) {
       alert('Please fill out all fields to create your account.');
@@ -218,25 +218,77 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
       return;
     }
 
-    // Generate own referral code: CHALO + name part + some random code
+    // Generate own referral code: CHALO + name part + some random code, checking for absolute uniqueness in Firestore
+    let uniqueCodeGenerated = false;
+    let generatedReferral = '';
+    let attempts = 0;
     const cleanName = name.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 5);
-    const randomNum = Math.floor(100 + Math.random() * 900);
-    const generatedReferral = `CHALO${cleanName}${randomNum}`;
+
+    while (!uniqueCodeGenerated && attempts < 10) {
+      attempts++;
+      const randomNum = Math.floor(100 + Math.random() * 900);
+      generatedReferral = `CHALO${cleanName}${randomNum}`;
+      
+      let exists = false;
+      const localExists = allUsers.some(u => u.referralCode && u.referralCode.toUpperCase() === generatedReferral);
+      if (localExists) {
+        exists = true;
+      } else if (db) {
+        try {
+          const docSnap = await getDoc(doc(db, 'referral_codes', generatedReferral));
+          if (docSnap.exists()) {
+            exists = true;
+          }
+        } catch (e) {
+          console.warn("Error checking referral code uniqueness in Firestore:", e);
+        }
+      }
+      if (!exists) {
+        uniqueCodeGenerated = true;
+      }
+    }
 
     let inviteeRewardAllocated = false;
     let referrerName = '';
+    let referrerEmail = '';
+    let referrerCode = '';
 
     // Validate the entered referral code
     if (signupReferralCode.trim()) {
-      const codeToSearch = signupReferralCode.trim().toLowerCase();
-      const referrerUser = allUsers.find(u => u.referralCode && u.referralCode.toLowerCase() === codeToSearch);
+      const codeToSearch = signupReferralCode.trim().toUpperCase();
       
-      if (referrerUser) {
-        referrerName = referrerUser.name;
+      // Let's verify code in Firestore first for absolute real-time validity
+      let referrerData: { email: string; name: string } | null = null;
+      if (db) {
+        try {
+          const docSnap = await getDoc(doc(db, 'referral_codes', codeToSearch));
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data && data.email) {
+              referrerData = { email: data.email.toLowerCase(), name: data.name || 'User' };
+            }
+          }
+        } catch (e) {
+          console.warn("Error checking referral code in Firestore:", e);
+        }
+      }
+
+      // Fallback to local storage if Firestore snap is empty
+      if (!referrerData) {
+        const localReferrer = allUsers.find(u => u.referralCode && u.referralCode.toUpperCase() === codeToSearch);
+        if (localReferrer) {
+          referrerData = { email: localReferrer.email.toLowerCase(), name: localReferrer.name };
+        }
+      }
+
+      if (referrerData) {
+        referrerName = referrerData.name;
+        referrerEmail = referrerData.email;
+        referrerCode = codeToSearch;
         inviteeRewardAllocated = true;
         
-        // Allocate points to referrer
-        const refEmail = referrerUser.email.toLowerCase();
+        // Allocate points to referrer locally
+        const refEmail = referrerData.email;
         const refWalletStr = localStorage.getItem(`chalo_wallet_${refEmail}`);
         let refWallet = { points: 4200, balance: 350.00, history: [] as any[] };
         if (refWalletStr) {
@@ -252,6 +304,46 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
           timestamp: new Date().toLocaleDateString()
         });
         localStorage.setItem(`chalo_wallet_${refEmail}`, JSON.stringify(refWallet));
+
+        // Sync and award points to referrer in Firestore
+        if (db) {
+          try {
+            const refDocRef = doc(db, 'users', refEmail);
+            const refDocSnap = await getDoc(refDocRef);
+            let currentRefWallet = refWallet;
+            if (refDocSnap.exists()) {
+              const refDbData = refDocSnap.data();
+              if (refDbData?.wallet) {
+                currentRefWallet = {
+                  ...refDbData.wallet,
+                  points: (refDbData.wallet.points || 0) + 2000,
+                  history: [
+                    {
+                      id: 'TXN_' + Math.floor(100000 + Math.random() * 900000),
+                      description: `Referral signup bonus: Invited ${name}`,
+                      type: 'credit',
+                      amount: 100.00,
+                      pointsSpentOrEarned: 2000,
+                      timestamp: new Date().toLocaleDateString()
+                    },
+                    ...(refDbData.wallet.history || [])
+                  ]
+                };
+              }
+            }
+            await setDoc(refDocRef, { wallet: currentRefWallet }, { merge: true });
+
+            // Store sub-collection referral details under the referrer
+            await setDoc(doc(db, 'users', refEmail, 'referrals', emailLower), {
+              name: name,
+              email: emailLower,
+              joinedAt: new Date().toISOString(),
+              pointsAwarded: 2000
+            });
+          } catch (e) {
+            console.warn("Error updating referrer wallet in Firestore:", e);
+          }
+        }
       } else {
         alert('⚠️ Warning: The referral code you entered is invalid. Continuing registration without referral bonus.');
       }
@@ -269,7 +361,7 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
       gender,
       savedAddresses: [],
       referralCode: generatedReferral,
-      referredBy: signupReferralCode.trim() || undefined,
+      referredBy: referrerCode || undefined,
       role: isAffiliate ? 'affiliate_partner' : (emailLower === 'kunalpareekusa@gmail.com' ? 'super_admin' : 'user'),
       avatarUrl: chosenAvatar,
       password: password,
@@ -320,7 +412,7 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
     if (db) {
       try {
         const userDocRef = doc(db, 'users', emailLower);
-        setDoc(userDocRef, {
+        await setDoc(userDocRef, {
           profile: newUser,
           wallet: starterWallet,
           preferences: savedPreferences || {
@@ -334,6 +426,14 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
           databaseSecret: FIREBASE_DATABASE_SECRET,
           lastSyncedAt: new Date().toISOString()
         }, { merge: true });
+
+        // Register the referral code in the global referral_codes collection
+        await setDoc(doc(db, 'referral_codes', generatedReferral.toUpperCase()), {
+          email: emailLower,
+          name: name,
+          createdAt: new Date().toISOString()
+        });
+
         console.log("Profile registered in Firebase Firestore successfully.");
       } catch (err) {
         console.warn("Could not save registration details to Firebase Firestore:", err);

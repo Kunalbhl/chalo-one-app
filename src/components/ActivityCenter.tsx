@@ -329,7 +329,7 @@ TOTAL AMOUNT:   ₹${selectedItem.amount}.00
   );
 
   return (
-    <div id="activity_center_container" className="p-4 max-w-xl mx-auto space-y-4 font-sans text-gray-800">
+    <div id="activity_center_container" className="p-4 max-w-6xl mx-auto w-full space-y-4 font-sans text-gray-800">
       <div className="flex border-b border-gray-150 shrink-0">
         <button
           type="button"

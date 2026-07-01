@@ -12,6 +12,7 @@ interface MartModuleProps {
   setActiveTab?: (tab: string) => void;
   connectedAccounts?: any;
   currentSelectedLocation?: string;
+  redirectToLinkedAccounts?: () => void;
 }
 
 export default function MartModule({
@@ -22,7 +23,8 @@ export default function MartModule({
   defaultFoodType,
   setActiveTab,
   connectedAccounts,
-  currentSelectedLocation
+  currentSelectedLocation,
+  redirectToLinkedAccounts
 }: MartModuleProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [recentSearches, setRecentSearches] = useState<string[]>(['Organic Milk', 'Brown Bread', 'Amul Butter']);
@@ -147,35 +149,40 @@ export default function MartModule({
   };
 
   return (
-    <div id="mart_module_container" className="p-4 max-w-xl mx-auto space-y-4 font-sans text-gray-800">
+    <div id="mart_module_container" className="p-4 max-w-6xl mx-auto w-full space-y-4 font-sans text-gray-800">
       <div className="flex items-center space-x-2 pb-2">
         <div className="p-2 bg-emerald-100 rounded-lg text-emerald-600">
           <Zap className="w-6 h-6 animate-pulse" />
         </div>
         <div>
-          <h2 className="text-xl font-display font-semibold tracking-tight text-emerald-950">Chalo Mart price check</h2>
-          <p className="text-xs text-gray-500">Side-by-side grocery comparisons: Blinkit, Zepto, Instamart, JioMart</p>
+          <h2 className="text-xl font-display font-semibold tracking-tight text-emerald-950">Chalo One Mart (Compare Price and Order)</h2>
+          <p className="text-xs text-gray-500">Real-time multi-platform price matching with instant 10-minute order placement: Blinkit, Zepto, Instamart, JioMart</p>
         </div>
       </div>
 
-      {showLinkBanner && (!connectedAccounts || (!connectedAccounts.blinkit && !connectedAccounts.zepto && !connectedAccounts.instamart)) && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-emerald-900 font-medium font-sans">
+      {showLinkBanner && (!connectedAccounts || !connectedAccounts.blinkit || !connectedAccounts.zepto || !connectedAccounts.instamart) && (
+        <div 
+          onClick={() => { if (redirectToLinkedAccounts) { redirectToLinkedAccounts(); } else if (setActiveTab) { setActiveTab('account'); } }}
+          className="bg-emerald-50 hover:bg-emerald-100/70 border border-emerald-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-emerald-900 font-medium font-sans cursor-pointer transition-all shadow-xs group"
+        >
           <div className="flex items-center space-x-2">
-            <span className="text-base shrink-0">💡</span>
-            <span>Link your Blinkit, Zepto, and Instamart accounts to sync active Passes, loyalty coins, and unlock waived delivery fees!</span>
+            <span className="text-base shrink-0 group-hover:scale-110 transition">💡</span>
+            <span>
+              Link your <strong className="font-bold text-emerald-950">Blinkit, Zepto, and Instamart</strong> accounts to sync active Passes, loyalty coins, and unlock waived delivery fees!
+            </span>
           </div>
           <div className="flex items-center space-x-2 shrink-0">
+            <span className="bg-emerald-600 group-hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition">
+              Link Now ➔
+            </span>
             <button 
               type="button" 
-              onClick={() => { if (setActiveTab) setActiveTab('account'); }} 
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer"
-            >
-              Link Account
-            </button>
-            <button 
-              type="button" 
-              onClick={() => setShowLinkBanner(false)} 
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowLinkBanner(false);
+              }} 
               className="text-emerald-500 hover:text-emerald-700 text-xs font-bold px-1.5 py-1"
+              title="Dismiss banner"
             >
               ✕
             </button>

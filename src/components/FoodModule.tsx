@@ -31,6 +31,8 @@ interface FoodModuleProps {
   setActiveTab?: (tab: string) => void;
   connectedAccounts?: any;
   currentSelectedLocation?: string;
+  redirectToLinkedAccounts?: () => void;
+  onBackRegister?: (handler: (() => boolean) | null) => void;
 }
 
 // Enhanced detailed local restaurant database representation
@@ -337,7 +339,9 @@ export default function FoodModule({
   defaultFoodType,
   setActiveTab,
   connectedAccounts,
-  currentSelectedLocation
+  currentSelectedLocation,
+  redirectToLinkedAccounts,
+  onBackRegister
 }: FoodModuleProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [recentSearches, setRecentSearches] = useState<string[]>(['Biryani', 'Cheese Pizza', 'Garlic Bread']);
@@ -354,6 +358,24 @@ export default function FoodModule({
   const [localPreferenceMode, setLocalPreferenceMode] = useState<string>(preferenceMode || 'cheapest');
   const [showLinkBanner, setShowLinkBanner] = useState(true);
   const [selectedCuisine, setSelectedCuisine] = useState<string>('All');
+
+  // Register internal back handler
+  useEffect(() => {
+    if (onBackRegister) {
+      if (selectedRestaurant) {
+        onBackRegister(() => {
+          setSelectedRestaurant(null);
+          setFocusedDishId(null);
+          return true; // handled
+        });
+      } else {
+        onBackRegister(null);
+      }
+    }
+    return () => {
+      if (onBackRegister) onBackRegister(null);
+    };
+  }, [selectedRestaurant, onBackRegister]);
 
   // Sync preferenceMode prop with local state
   useEffect(() => {
@@ -414,7 +436,7 @@ export default function FoodModule({
   };
 
   return (
-    <div id="food_module_container" className="p-4 max-w-xl mx-auto space-y-4 font-sans text-gray-800">
+    <div id="food_module_container" className="p-4 max-w-6xl mx-auto w-full space-y-4 font-sans text-gray-800">
       
       {/* Dynamic Header */}
       {!selectedRestaurant ? (
@@ -545,24 +567,29 @@ export default function FoodModule({
             </div>
           </div>
 
-          {showLinkBanner && (!connectedAccounts || (!connectedAccounts.zomato && !connectedAccounts.swiggy && !connectedAccounts.eatsure)) && (
-            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-rose-900 font-medium font-sans">
+          {showLinkBanner && (!connectedAccounts || !connectedAccounts.zomato || !connectedAccounts.swiggy || !connectedAccounts.eatsure) && (
+            <div 
+              onClick={() => { if (redirectToLinkedAccounts) { redirectToLinkedAccounts(); } else if (setActiveTab) { setActiveTab('account'); } }}
+              className="bg-rose-50 hover:bg-rose-100/70 border border-rose-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-rose-900 font-medium font-sans cursor-pointer transition-all shadow-xs group"
+            >
               <div className="flex items-center space-x-2">
-                <span className="text-base shrink-0">💡</span>
-                <span>Link your Swiggy, Zomato, and EatSure accounts to dynamically sync SuperCoins, Active Pro memberships, and loyalty benefits!</span>
+                <span className="text-base shrink-0 group-hover:scale-110 transition">💡</span>
+                <span>
+                  Link your <strong className="font-bold text-rose-950">Zomato, Swiggy, and EatSure</strong> accounts to dynamically sync SuperCoins, Active Pro memberships, and loyalty benefits!
+                </span>
               </div>
               <div className="flex items-center space-x-2 shrink-0">
+                <span className="bg-rose-600 group-hover:bg-rose-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition">
+                  Link Now ➔
+                </span>
                 <button 
                   type="button" 
-                  onClick={() => { if (setActiveTab) setActiveTab('account'); }} 
-                  className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer"
-                >
-                  Link Account
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => setShowLinkBanner(false)} 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowLinkBanner(false);
+                  }} 
                   className="text-rose-500 hover:text-rose-700 text-xs font-bold px-1.5 py-1"
+                  title="Dismiss banner"
                 >
                   ✕
                 </button>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { IntercityQuery, IntercityOption } from '../types';
-import { MapPin, Users, Briefcase, Calendar, Clock, AlertTriangle, CheckCircle2, ChevronRight, Award, HelpCircle, Star, Compass, Sparkles } from 'lucide-react';
+import { MapPin, Users, Briefcase, Calendar, Clock, AlertTriangle, CheckCircle2, ChevronRight, Award, HelpCircle, Star, Compass, Sparkles, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ChaloMapView from './ChaloMapView';
 
@@ -10,6 +10,8 @@ interface IntercityModuleProps {
   connectedAccounts?: any;
   currentSelectedLocation?: string;
   preferenceMode?: string;
+  redirectToLinkedAccounts?: () => void;
+  onBackRegister?: (handler: (() => boolean) | null) => void;
 }
 
 export default function IntercityModule({
@@ -17,7 +19,9 @@ export default function IntercityModule({
   setActiveTab,
   connectedAccounts,
   currentSelectedLocation,
-  preferenceMode
+  preferenceMode,
+  redirectToLinkedAccounts,
+  onBackRegister
 }: IntercityModuleProps) {
   const [pickup, setPickup] = useState(() => {
     return currentSelectedLocation || localStorage.getItem('chalo_intercity_pickup') || 'Jaipur';
@@ -35,6 +39,44 @@ export default function IntercityModule({
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [selectedOptionIndex, setSelectedOptionIndex] = useState<number | null>(null);
   const [viewingDetailOption, setViewingDetailOption] = useState<any | null>(null);
+
+  // Active Trip States for two-factor OTP outstation tracking
+  const [activeTrip, setActiveTrip] = useState<any | null>(null);
+
+  // Register internal back handler
+  React.useEffect(() => {
+    if (onBackRegister) {
+      if (viewingDetailOption || activeTrip) {
+        onBackRegister(() => {
+          if (activeTrip) {
+            setActiveTrip(null);
+            setTripLiveStatus('driver_assigned');
+            setPickupOtpInput('');
+            setDropOffOtpInput('');
+            setPickupOtpVerified(false);
+            setDropOffOtpVerified(false);
+            return true;
+          }
+          if (viewingDetailOption) {
+            setViewingDetailOption(null);
+            setSelectedOptionIndex(null);
+            return true;
+          }
+          return false;
+        });
+      } else {
+        onBackRegister(null);
+      }
+    }
+    return () => {
+      if (onBackRegister) onBackRegister(null);
+    };
+  }, [viewingDetailOption, activeTrip, onBackRegister]);
+  const [tripLiveStatus, setTripLiveStatus] = useState<'driver_assigned' | 'arriving' | 'active' | 'completed'>('driver_assigned');
+  const [pickupOtpInput, setPickupOtpInput] = useState('');
+  const [dropOffOtpInput, setDropOffOtpInput] = useState('');
+  const [pickupOtpVerified, setPickupOtpVerified] = useState(false);
+  const [dropOffOtpVerified, setDropOffOtpVerified] = useState(false);
 
   // Filter and Sort states for Intercity comparison
   const [icFilterVehicle, setIcFilterVehicle] = useState<string>('All');
@@ -174,21 +216,45 @@ export default function IntercityModule({
 
   const handleBook = (option: IntercityOption, idx: number) => {
     setSelectedOptionIndex(idx);
+    
+    const pOtp = Math.floor(1000 + Math.random() * 9000).toString();
+    const dOtp = Math.floor(1000 + Math.random() * 9000).toString();
+    const tripId = "CHALO-INTERCITY-" + Math.floor(100000 + Math.random() * 900000);
 
-    addOrderToActivity({
-      id: "CHALO-INTERCITY-" + Math.floor(100000 + Math.random() * 900000),
+    const tripObj = {
+      id: tripId,
       category: 'intercity',
       platform: option.platform,
       merchant: `Outstation: ${option.vehicleType}`,
       title: `${pickup} to ${destination} Intercity`,
       subtitle: `Scheduled for: ${date} at ${time}. Pax: ${passengers}`,
-      date: "Scheduled",
-      time: date,
+      date: "Today",
+      time: time,
       amount: option.fare,
       status: 'upcoming',
-      statusLabel: 'Upcoming',
-      paymentMethod: 'Chalo Pay Later'
-    });
+      statusLabel: 'Driver Dispatched',
+      paymentMethod: 'Chalo Pay Later',
+      pickupOtp: pOtp,
+      dropOffOtp: dOtp,
+      driverName: "Rajesh Kumar",
+      driverPhone: "+91 98765 43210",
+      vehicleNumber: "MH-12-GP-5021",
+      vehicleModel: "White Maruti Suzuki Ertiga CNG",
+      comfortScore: option.comfortScore,
+      calculatedDistance: option.calculatedDistance,
+      travelTime: option.travelTime,
+      tollCharges: option.tollCharges,
+      fare: option.fare
+    };
+
+    setActiveTrip(tripObj);
+    setTripLiveStatus('driver_assigned');
+    setPickupOtpVerified(false);
+    setDropOffOtpVerified(false);
+    setPickupOtpInput('');
+    setDropOffOtpInput('');
+
+    addOrderToActivity(tripObj);
   };
 
   const filteredRecommendations = recommendations
@@ -210,6 +276,376 @@ export default function IntercityModule({
       }
     });
 
+  const [showReceipt, setShowReceipt] = useState(false);
+
+  if (activeTrip) {
+    return (
+      <div id="active_outstation_trip_container" className="p-4 max-w-6xl mx-auto space-y-6 font-sans text-gray-800">
+        {/* Header with back button to abort active trip simulator safely */}
+        <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => setActiveTrip(null)}
+              className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition cursor-pointer"
+              title="Return to search"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h2 className="text-xl font-display font-black tracking-tight text-indigo-950 uppercase">
+                {activeTrip.platform} Outstation Tracker
+              </h2>
+              <p className="text-xs text-slate-500 font-semibold font-mono">
+                Booking ID: {activeTrip.id} • Chalo Verified Highway Gateway
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] font-black bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full uppercase tracking-wider font-mono">
+            Outstation Mode
+          </span>
+        </div>
+
+        {/* Live Status Indicator Bar */}
+        <div className="bg-slate-900 text-white p-4 rounded-3xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-md border border-slate-800">
+          <div>
+            <div className="flex items-center space-x-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping shrink-0"></span>
+              <span className="text-xs font-black uppercase tracking-wider text-amber-400 font-mono">
+                🔴 Active Trip Status: {
+                  tripLiveStatus === 'driver_assigned' ? 'Driver Dispatched / Heading to Pickup' :
+                  tripLiveStatus === 'arriving' ? 'Driver Arrived at Pickup Location' :
+                  tripLiveStatus === 'active' ? 'En Route to Destination City' :
+                  'Journey Completed & Secured'
+                }
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-300 font-medium mt-1">
+              Live outstation sync on National Highway routes with automatic Fastag tracking.
+            </p>
+          </div>
+          <div className="flex items-center space-x-2 font-mono text-[10px] bg-slate-800 text-slate-300 px-3 py-1.5 rounded-xl border border-slate-700">
+            <span>Server Channel:</span>
+            <span className="text-emerald-400 font-black">CHALO-HIGHWAY-SECURE-SYNC</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Main Map tracking area */}
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-white p-4 rounded-3xl border border-slate-150 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider font-mono">
+                  🗺️ Live Outstation Route Map & GPS Tracker
+                </span>
+                <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-lg">
+                  Route: {pickup} ➔ {destination}
+                </span>
+              </div>
+              <div className="h-80 rounded-2xl overflow-hidden border border-slate-200 shadow-inner">
+                <ChaloMapView
+                  label="Outstation Navigation"
+                  placeholder="Tracking live coordinates..."
+                  initialValue={destination}
+                  onLocationSelect={() => {}}
+                  showMap={true}
+                  pickupCoords={pickupCoords}
+                  destCoords={destCoords}
+                  tripLiveStatus={tripLiveStatus}
+                />
+              </div>
+            </div>
+
+            {/* Trip details card */}
+            <div className="bg-slate-50 p-5 rounded-3xl border border-slate-200/80 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-mono">
+              <div className="space-y-1">
+                <span className="text-slate-400 block font-semibold">EST. DISTANCE</span>
+                <span className="font-extrabold text-slate-800 text-sm">{activeTrip.calculatedDistance} KM</span>
+              </div>
+              <div className="space-y-1">
+                <span className="text-slate-400 block font-semibold">DRIVE TIME</span>
+                <span className="font-extrabold text-slate-800 text-sm">{activeTrip.travelTime}</span>
+              </div>
+              <div className="space-y-1">
+                <span className="text-slate-400 block font-semibold">TOTAL QUOTE</span>
+                <span className="font-extrabold text-indigo-950 text-sm font-sans">₹{activeTrip.fare}</span>
+              </div>
+              <div className="space-y-1">
+                <span className="text-slate-400 block font-semibold">METHOD</span>
+                <span className="font-extrabold text-emerald-700 text-[10px] bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">PAY LATER</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Sidebar controls with TWO-FACTOR OTP FLOW */}
+          <div className="space-y-6">
+            {/* Driver details card */}
+            <div className="bg-white p-5 rounded-3xl border border-slate-150 space-y-4 shadow-xs">
+              <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-wider font-mono">
+                🚖 Assigned Outstation Chalo Partner
+              </h3>
+              <div className="flex items-center space-x-3.5">
+                <div className="w-12 h-12 bg-indigo-100 text-indigo-700 rounded-2xl font-display font-black text-lg flex items-center justify-center shadow-inner">
+                  {activeTrip.driverName.charAt(0)}
+                </div>
+                <div>
+                  <h4 className="font-display font-black text-slate-900 text-sm leading-tight">
+                    {activeTrip.driverName}
+                  </h4>
+                  <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.2 rounded inline-block mt-1">
+                    ★ 4.9 Verified Partner
+                  </span>
+                </div>
+              </div>
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Vehicle:</span>
+                  <span className="font-bold text-slate-800 text-right">{activeTrip.vehicleModel}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">License Plate:</span>
+                  <span className="font-mono font-black text-slate-900">{activeTrip.vehicleNumber}</span>
+                </div>
+              </div>
+              <div className="flex gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => alert(`Dialing outstation driver ${activeTrip.driverName} at ${activeTrip.driverPhone}...`)}
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2.5 rounded-2xl text-xs transition cursor-pointer text-center border border-slate-200"
+                >
+                  📞 Call
+                </button>
+                <button
+                  type="button"
+                  onClick={() => alert("Opening chat channel with outstation driver Rajesh Kumar...")}
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2.5 rounded-2xl text-xs transition cursor-pointer text-center border border-slate-200"
+                >
+                  💬 Message
+                </button>
+              </div>
+            </div>
+
+            {/* TWO-FACTOR OTP CONTAINER */}
+            <div className="bg-white p-5 rounded-3xl border border-slate-150 space-y-4 shadow-sm">
+              <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-wider font-mono">
+                🛡️ SafeTrip Two-Factor OTP Codes
+              </h3>
+
+              {/* Step 1: PICKUP OTP */}
+              <div className="p-4 rounded-2xl border border-dashed transition-all relative overflow-hidden bg-amber-50/50 border-amber-200">
+                <div className="flex items-center justify-between mb-2.5">
+                  <span className="text-[10.5px] font-bold text-amber-800">
+                    STEP 1: Boarding & Pickup OTP
+                  </span>
+                  {pickupOtpVerified ? (
+                    <span className="text-[9.5px] bg-emerald-100 text-emerald-800 font-black uppercase tracking-wider px-2 py-0.5 rounded-md">
+                      ✓ Verified & Started
+                    </span>
+                  ) : (
+                    <span className="text-[9.5px] bg-amber-100 text-amber-800 font-black uppercase tracking-wider px-2 py-0.5 rounded-md animate-pulse">
+                      Pending Boarding
+                    </span>
+                  )}
+                </div>
+
+                <div className="bg-white border border-amber-200/60 p-3 rounded-xl text-center shadow-xs">
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                    Give this OTP to driver on boarding
+                  </p>
+                  <span className="text-3xl font-mono font-black text-amber-950 tracking-wider block mt-1.5">
+                    {activeTrip.pickupOtp}
+                  </span>
+                </div>
+
+                {/* Simulated driver prompt */}
+                {!pickupOtpVerified && (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-[10px] text-amber-900 leading-snug">
+                      <strong>Simulator Mode</strong>: Enter the pickup OTP ({activeTrip.pickupOtp}) below to simulate driver verification and start the intercity trip:
+                    </p>
+                    <div className="flex space-x-2">
+                      <input
+                        type="text"
+                        maxLength={4}
+                        value={pickupOtpInput}
+                        onChange={(e) => setPickupOtpInput(e.target.value.replace(/\D/g, ''))}
+                        placeholder="Type Pickup OTP"
+                        className="w-full bg-white border border-amber-300 rounded-xl px-2.5 py-1.5 text-xs text-center font-mono font-bold outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (pickupOtpInput === activeTrip.pickupOtp) {
+                            setPickupOtpVerified(true);
+                            setTripLiveStatus('active');
+                          } else {
+                            alert("Invalid Pickup OTP! Type " + activeTrip.pickupOtp + " to simulate verification.");
+                          }
+                        }}
+                        className="bg-amber-600 hover:bg-amber-700 text-white font-black px-3.5 py-1.5 rounded-xl text-xs transition cursor-pointer shrink-0 uppercase tracking-wide"
+                      >
+                        Verify
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Step 2: DROP-OFF OTP */}
+              <div className={`p-4 rounded-2xl border border-dashed transition-all relative overflow-hidden ${
+                pickupOtpVerified 
+                  ? 'bg-indigo-50/50 border-indigo-200 opacity-100' 
+                  : 'bg-slate-50 border-slate-200 opacity-50 select-none pointer-events-none'
+              }`}>
+                {!pickupOtpVerified && (
+                  <div className="absolute inset-0 bg-slate-50/60 z-10 flex items-center justify-center p-3 text-center">
+                    <span className="text-[10.5px] font-bold text-slate-500 bg-white border border-slate-150 px-3 py-1.5 rounded-xl shadow-xs">
+                      🔒 Unlocks only after Pickup OTP verification
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between mb-2.5">
+                  <span className="text-[10.5px] font-bold text-indigo-800">
+                    STEP 2: Drop-Off OTP (Destination)
+                  </span>
+                  {dropOffOtpVerified ? (
+                    <span className="text-[9.5px] bg-emerald-100 text-emerald-800 font-black uppercase tracking-wider px-2 py-0.5 rounded-md">
+                      ✓ Journey Closed
+                    </span>
+                  ) : (
+                    <span className="text-[9.5px] bg-indigo-100 text-indigo-800 font-black uppercase tracking-wider px-2 py-0.5 rounded-md">
+                      Active Cruise
+                    </span>
+                  )}
+                </div>
+
+                <div className="bg-white border border-indigo-200/60 p-3 rounded-xl text-center shadow-xs">
+                  <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                    Provide this code to driver ONLY upon arrival
+                  </p>
+                  <span className="text-3xl font-mono font-black text-indigo-950 tracking-wider block mt-1.5">
+                    {activeTrip.dropOffOtp}
+                  </span>
+                </div>
+
+                {pickupOtpVerified && !dropOffOtpVerified && (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-[10px] text-indigo-900 leading-snug">
+                      <strong>Simulator Mode</strong>: Enter the drop-off OTP ({activeTrip.dropOffOtp}) below to simulate arrival and successfully complete this outstation trip:
+                    </p>
+                    <div className="flex space-x-2">
+                      <input
+                        type="text"
+                        maxLength={4}
+                        value={dropOffOtpInput}
+                        onChange={(e) => setDropOffOtpInput(e.target.value.replace(/\D/g, ''))}
+                        placeholder="Type Drop-off OTP"
+                        className="w-full bg-white border border-indigo-300 rounded-xl px-2.5 py-1.5 text-xs text-center font-mono font-bold outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (dropOffOtpInput === activeTrip.dropOffOtp) {
+                            setDropOffOtpVerified(true);
+                            setTripLiveStatus('completed');
+                            setShowReceipt(true);
+                          } else {
+                            alert("Invalid Drop-off OTP! Type " + activeTrip.dropOffOtp + " to simulate journey completion.");
+                          }
+                        }}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-3.5 py-1.5 rounded-xl text-xs transition cursor-pointer shrink-0 uppercase tracking-wide"
+                      >
+                        Verify
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Detailed receipt modal upon complete journey verification */}
+        <AnimatePresence>
+          {showReceipt && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.95 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0.95 }}
+                className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl border border-slate-200 flex flex-col p-6 space-y-4"
+              >
+                <div className="text-center space-y-1">
+                  <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto mb-2 text-xl font-bold">
+                    ✓
+                  </div>
+                  <h3 className="font-display font-black text-slate-900 text-base uppercase">
+                    CHALO OUTSTATION SECURED RECEIPT
+                  </h3>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest font-mono">
+                    Transaction ID: {activeTrip.id}-TXN
+                  </span>
+                </div>
+
+                {/* Invoice breakdown */}
+                <div className="border border-slate-150 rounded-2xl divide-y divide-slate-100 text-xs">
+                  <div className="p-3 bg-slate-50 flex justify-between font-bold">
+                    <span className="text-slate-600">Travel Route</span>
+                    <span className="text-slate-900">{pickup} to {destination}</span>
+                  </div>
+                  <div className="p-3 flex justify-between">
+                    <span className="text-slate-400">Travel Duration</span>
+                    <span className="text-slate-800">{activeTrip.travelTime} ({activeTrip.calculatedDistance} km)</span>
+                  </div>
+                  <div className="p-3 flex justify-between">
+                    <span className="text-slate-400">Assigned Driver</span>
+                    <span className="text-slate-800">{activeTrip.driverName}</span>
+                  </div>
+                  <div className="p-3 flex justify-between">
+                    <span className="text-slate-400">Outstation Base Price</span>
+                    <span className="text-slate-800 font-mono">₹{Math.round(activeTrip.fare - activeTrip.tollCharges)}</span>
+                  </div>
+                  <div className="p-3 flex justify-between">
+                    <span className="text-slate-400">Integrated FASTag tolls</span>
+                    <span className="text-slate-800 font-mono">₹{activeTrip.tollCharges}</span>
+                  </div>
+                  <div className="p-4 bg-emerald-500/10 flex justify-between items-center font-bold">
+                    <span className="text-slate-900 font-display">Total Amount Paid</span>
+                    <div className="text-right">
+                      <span className="text-lg text-emerald-950 font-mono">₹{activeTrip.fare}</span>
+                      <p className="text-[8px] text-slate-450 font-mono font-medium">Charged via Chalo Pay Later</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-emerald-50 border border-emerald-150 p-3 rounded-2xl text-center text-emerald-950 text-[11px] leading-snug">
+                  🎉 <strong>Chalo savings reward active!</strong> You earned **₹{Math.round(activeTrip.fare * 0.05)}** worth of Chalo loyalty cashback rewards! This has been loaded onto your Chalo Wallet.
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowReceipt(false);
+                    setActiveTrip(null);
+                  }}
+                  className="w-full bg-slate-900 hover:bg-slate-950 text-white font-display font-black py-3 rounded-2xl text-xs tracking-wider uppercase transition cursor-pointer"
+                >
+                  Done & Close Outstation Tracker
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
   return (
     <div id="intercity_module_container" className="p-4 max-w-6xl mx-auto space-y-6 font-sans text-gray-800">
       <div className="flex items-center space-x-2 pb-2">
@@ -222,24 +658,29 @@ export default function IntercityModule({
         </div>
       </div>
 
-      {showLinkBanner && (!connectedAccounts || (!connectedAccounts.uber && !connectedAccounts.ola && !connectedAccounts.makemytrip)) && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-amber-900 font-medium font-sans">
+      {showLinkBanner && (!connectedAccounts || !connectedAccounts.uber || !connectedAccounts.ola || !connectedAccounts.makemytrip) && (
+        <div 
+          onClick={() => { if (redirectToLinkedAccounts) { redirectToLinkedAccounts(); } else if (setActiveTab) { setActiveTab('account'); } }}
+          className="bg-amber-50 hover:bg-amber-100/70 border border-amber-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-amber-900 font-medium font-sans cursor-pointer transition-all shadow-xs group"
+        >
           <div className="flex items-center space-x-2">
-            <span className="text-base shrink-0">💡</span>
-            <span>Link your Ola, Uber, and MakeMyTrip accounts to automatically unlock highway loyalty points and priority vehicle routing!</span>
+            <span className="text-base shrink-0 group-hover:scale-110 transition">💡</span>
+            <span>
+              Link your <strong className="font-bold text-amber-950">Uber, Ola, and MakeMyTrip</strong> accounts to automatically unlock highway loyalty points and priority vehicle routing!
+            </span>
           </div>
           <div className="flex items-center space-x-2 shrink-0">
+            <span className="bg-amber-600 group-hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition">
+              Link Now ➔
+            </span>
             <button 
               type="button" 
-              onClick={() => { if (setActiveTab) setActiveTab('account'); }} 
-              className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer"
-            >
-              Link Account
-            </button>
-            <button 
-              type="button" 
-              onClick={() => setShowLinkBanner(false)} 
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowLinkBanner(false);
+              }} 
               className="text-amber-500 hover:text-amber-700 text-xs font-bold px-1.5 py-1"
+              title="Dismiss banner"
             >
               ✕
             </button>

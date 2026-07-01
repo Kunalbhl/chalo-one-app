@@ -60,28 +60,38 @@ import {
   Car,
   Bot,
   ArrowLeft,
-  ArrowRight
+  ArrowRight,
+  SlidersHorizontal,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
   const [activeTab, setActiveTabRaw] = useState<string>('home');
   const [tabHistory, setTabHistory] = useState<string[]>([]);
+  const [moduleBackHandler, setModuleBackHandler] = useState<(() => boolean) | null>(null);
 
   const setActiveTab = (tab: string | ((prev: string) => string)) => {
-    setActiveTabRaw(current => {
-      const nextTab = typeof tab === 'function' ? tab(current) : tab;
-      if (nextTab !== current) {
-        setTabHistory(prev => {
-          if (prev[prev.length - 1] === current) return prev;
-          return [...prev, current];
-        });
-      }
-      return nextTab;
-    });
+    const nextTab = typeof tab === 'function' ? tab(activeTab) : tab;
+    if (nextTab !== activeTab) {
+      setModuleBackHandler(null); // Reset back handler on tab change
+      setTabHistory(prev => {
+        if (prev.length > 0 && prev[prev.length - 1] === activeTab) {
+          return prev;
+        }
+        return [...prev, activeTab];
+      });
+      setActiveTabRaw(nextTab);
+    }
   };
 
   const handleGoBack = () => {
+    if (moduleBackHandler) {
+      const handled = moduleBackHandler();
+      if (handled) return; // handled by the internal module
+    }
+
     if (tabHistory.length > 0) {
       const copy = [...tabHistory];
       const previous = copy.pop();
@@ -95,6 +105,10 @@ export default function App() {
   };
   const [aiInitialQuery, setAiInitialQuery] = useState<string>('');
   const [accountInitialSection, setAccountInitialSection] = useState<string>('main');
+  const redirectToLinkedAccounts = () => {
+    setAccountInitialSection('linked_accounts');
+    setActiveTab('preferences');
+  };
   const [showFloatingChat, setShowFloatingChat] = useState<boolean>(false);
   const [showNotificationCenter, setShowNotificationCenter] = useState<boolean>(true);
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState<boolean>(false);
@@ -915,12 +929,12 @@ export default function App() {
     }
   };
 
-  const applyReferralCodePostSignup = (code: string): { success: boolean; message: string } => {
+  const applyReferralCodePostSignup = async (code: string): Promise<{ success: boolean; message: string }> => {
     if (!userProfile) {
       return { success: false, message: 'Please log in first.' };
     }
     
-    const trimmedCode = code.trim();
+    const trimmedCode = code.trim().toUpperCase();
     if (!trimmedCode) {
       return { success: false, message: 'Please enter a valid referral code.' };
     }
@@ -942,10 +956,36 @@ export default function App() {
       try { allUsers = JSON.parse(allUsersData); } catch(e) {}
     }
     
-    const referrerUser = allUsers.find((u: any) => u.referralCode && u.referralCode.toLowerCase() === trimmedCode.toLowerCase());
-    if (!referrerUser) {
+    // Verify code in Firestore first for absolute real-time central correctness
+    let referrerData: { email: string; name: string } | null = null;
+    if (db) {
+      try {
+        const docSnap = await getDoc(doc(db, 'referral_codes', trimmedCode));
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data && data.email) {
+            referrerData = { email: data.email.toLowerCase(), name: data.name || 'User' };
+          }
+        }
+      } catch (e) {
+        console.warn("Error verifying referral code in post-signup:", e);
+      }
+    }
+
+    // Fallback to local storage if Firestore snap is empty
+    if (!referrerData) {
+      const localReferrer = allUsers.find((u: any) => u.referralCode && u.referralCode.toUpperCase() === trimmedCode);
+      if (localReferrer) {
+        referrerData = { email: localReferrer.email.toLowerCase(), name: localReferrer.name };
+      }
+    }
+
+    if (!referrerData) {
       return { success: false, message: 'Invalid referral code. Please check and try again.' };
     }
+
+    const referrerEmail = referrerData.email;
+    const referrerName = referrerData.name;
     
     // Valid code! Apply rewards
     // 1. Reward the current user
@@ -958,9 +998,9 @@ export default function App() {
           {
             id: 'TXN-' + Math.floor(100000 + Math.random() * 900000),
             type: 'credit' as const,
-            amount: 0,
+            amount: 100.00,
             pointsSpentOrEarned: 2000,
-            description: `Referral Welcome Bonus via ${referrerUser.name}`,
+            description: `Referral Welcome Bonus via ${referrerName}`,
             createdAt: new Date().toLocaleDateString()
           },
           ...prev.history
@@ -972,30 +1012,80 @@ export default function App() {
       return updatedWallet;
     });
     
-    // 2. Reward the referrer
-    const referrerEmailKey = referrerUser.email.toLowerCase().trim();
+    // 2. Reward the referrer locally
+    const referrerEmailKey = referrerEmail.toLowerCase().trim();
     const referrerWalletKey = `chalo_wallet_${referrerEmailKey}`;
     const referrerWalletData = localStorage.getItem(referrerWalletKey);
+    let rWallet = { points: 0, balance: 0.00, history: [] as any[] };
     if (referrerWalletData) {
       try {
-        const rWallet = JSON.parse(referrerWalletData);
-        rWallet.points += 2000;
-        rWallet.history.unshift({
-          id: 'TXN-' + Math.floor(100000 + Math.random() * 900005),
-          type: 'credit',
-          amount: 0,
-          pointsSpentOrEarned: 2000,
-          description: `Referral post-signup bonus: Invited ${userProfile.name}`,
-          createdAt: new Date().toLocaleDateString()
-        });
-        localStorage.setItem(referrerWalletKey, JSON.stringify(rWallet));
+        rWallet = JSON.parse(referrerWalletData);
       } catch(e) {}
+    }
+    rWallet.points += 2000;
+    rWallet.history.unshift({
+      id: 'TXN-' + Math.floor(100000 + Math.random() * 900005),
+      type: 'credit',
+      amount: 100.00,
+      pointsSpentOrEarned: 2000,
+      description: `Referral post-signup bonus: Invited ${userProfile.name}`,
+      createdAt: new Date().toLocaleDateString()
+    });
+    localStorage.setItem(referrerWalletKey, JSON.stringify(rWallet));
+
+    // Persist changes to Firestore for both users
+    if (db) {
+      try {
+        const myEmailLower = userProfile.email.toLowerCase().trim();
+        // 1. Current User
+        await setDoc(doc(db, 'users', myEmailLower), {
+          profile: { ...userProfile, referredBy: trimmedCode },
+          wallet: updatedWallet || wallet
+        }, { merge: true });
+
+        // 2. Referrer User
+        const refDocRef = doc(db, 'users', referrerEmail);
+        const refDocSnap = await getDoc(refDocRef);
+        let currentRefWallet = rWallet;
+        if (refDocSnap.exists()) {
+          const refDbData = refDocSnap.data();
+          if (refDbData?.wallet) {
+            currentRefWallet = {
+              ...refDbData.wallet,
+              points: (refDbData.wallet.points || 0) + 2000,
+              history: [
+                {
+                  id: 'TXN-' + Math.floor(100000 + Math.random() * 900005),
+                  type: 'credit',
+                  amount: 100.00,
+                  pointsSpentOrEarned: 2000,
+                  description: `Referral post-signup bonus: Invited ${userProfile.name}`,
+                  createdAt: new Date().toLocaleDateString()
+                },
+                ...(refDbData.wallet.history || [])
+              ]
+            };
+          }
+        }
+        await setDoc(refDocRef, { wallet: currentRefWallet }, { merge: true });
+
+        // 3. Store sub-collection referral details under the referrer
+        await setDoc(doc(db, 'users', referrerEmail, 'referrals', myEmailLower), {
+          name: userProfile.name,
+          email: myEmailLower,
+          joinedAt: new Date().toISOString(),
+          pointsAwarded: 2000
+        });
+
+      } catch (e) {
+        console.warn("Error updating Firestore for post-signup referral:", e);
+      }
     }
     
     // 3. Update current user profile
     const updatedProfile = {
       ...userProfile,
-      referredBy: referrerUser.referralCode
+      referredBy: trimmedCode
     };
     setUserProfile(updatedProfile);
     localStorage.setItem('chalo_user_profile', JSON.stringify(updatedProfile));
@@ -1003,16 +1093,11 @@ export default function App() {
     // Also update current user in all users database
     const currentIdx = allUsers.findIndex((u: any) => u.email.toLowerCase() === userProfile.email.toLowerCase());
     if (currentIdx !== -1) {
-      allUsers[currentIdx] = { ...allUsers[currentIdx], referredBy: referrerUser.referralCode };
+      allUsers[currentIdx] = { ...allUsers[currentIdx], referredBy: trimmedCode };
       localStorage.setItem('chalo_all_users', JSON.stringify(allUsers));
     }
     
-    // Persist changes to Firebase
-    setTimeout(() => {
-      persistFirebaseUpdate(updatedWallet || wallet, preferences);
-    }, 100);
-    
-    return { success: true, message: `Success! Both you and ${referrerUser.name} have been allocated 2,000 points!` };
+    return { success: true, message: `Success! Both you and ${referrerName} have been allocated 2,000 points!` };
   };
 
   const addSupportTicket = (ticket: SupportTicket) => {
@@ -1141,7 +1226,7 @@ export default function App() {
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-slate-100 flex flex-col text-slate-900 font-sans tracking-tight antialiased">
-        <div className="w-full max-w-xl md:max-w-4xl lg:max-w-5xl xl:max-w-6xl mx-auto bg-white min-h-screen flex flex-col shadow-2xl relative md:border-x border-slate-150 transition-all duration-300">
+        <div className="w-full bg-white min-h-screen flex flex-col shadow-2xl relative md:border-x border-slate-150 transition-all duration-300">
           <LoginSignup 
             savedPreferences={preferences}
             onLoginSuccess={(profile) => {
@@ -1220,7 +1305,7 @@ export default function App() {
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: "easeOut" }}
-        className="w-full max-w-7xl mx-auto bg-white min-h-screen flex flex-col shadow-2xl relative md:border-x border-slate-150 transition-all duration-300"
+        className="w-full bg-white min-h-screen flex flex-col shadow-2xl relative md:border-x border-slate-150 transition-all duration-300"
       >
         
         {/* 🛡️ APP LAUNCH LOCK OVERLAY */}
@@ -1251,104 +1336,119 @@ export default function App() {
         />
         
         {/* PREMIUM GLOBAL HEADER BAR */}
-        <header className="sticky top-0 z-30 bg-slate-900 text-white px-4 py-3 flex flex-col space-y-2.5 shadow-md">
+        <header className="sticky top-0 z-30 bg-slate-900 text-white px-4 py-3 flex flex-col space-y-2.5 md:space-y-0 shadow-md">
+          {/* Main row */}
           <div className="flex items-center justify-between w-full">
-            <div className="flex items-center space-x-2.5">
+            {/* Logo and Brand */}
+            <div className="flex items-center space-x-2">
               {activeTab !== 'home' && (
                 <button
                   type="button"
                   id="header-go-back-btn"
                   onClick={handleGoBack}
-                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 rounded-xl flex items-center justify-center transition border border-slate-700 cursor-pointer mr-1"
+                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 rounded-xl flex items-center justify-center transition border border-slate-700 cursor-pointer mr-1 shrink-0"
                   title="Go back to the previous screen"
                 >
                   <ArrowLeft className="w-3.5 h-3.5 animate-pulse" />
                 </button>
               )}
-              <div className="flex items-center space-x-2.5 cursor-pointer select-none" onClick={() => setActiveTab('home')}>
-              {/* Logo container styled for a transparent PNG logo without a white background */}
-              <div className="w-8 h-8 flex items-center justify-center overflow-hidden shrink-0">
-                <img 
-                  src={appLogo} 
-                  alt="Chalo One Logo" 
-                  className="w-full h-full object-contain" 
-                  referrerPolicy="no-referrer" 
-                />
+              <div className="flex items-center space-x-2 cursor-pointer select-none" onClick={() => setActiveTab('home')}>
+                {/* Logo container styled for a transparent PNG logo without a white background */}
+                <div className="w-8 h-8 flex items-center justify-center overflow-hidden shrink-0">
+                  <img 
+                    src={appLogo} 
+                    alt="Chalo One Logo" 
+                    className="w-full h-full object-contain" 
+                    referrerPolicy="no-referrer" 
+                  />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="font-display font-black text-sm tracking-tight uppercase leading-none truncate">Chalo One</h1>
+                  <span className="text-[7.5px] text-amber-400 font-bold uppercase mt-0.5 block font-mono sm:hidden truncate max-w-[110px]">AI Super Comparator</span>
+                  <span className="text-[8px] text-amber-400 font-bold uppercase mt-1 hidden sm:block font-mono">AI Powered One Platform Compare Food, Rides, Stay & Order.</span>
+                </div>
               </div>
-              <div>
-                <h1 className="font-display font-black text-sm tracking-tight uppercase leading-none">Chalo One</h1>
-                <span className="text-[8px] text-amber-400 font-bold uppercase mt-1 block font-mono">AI Powered One Platform Compare Food, Rides, Stay & Order.</span>
+            </div>
+
+            {/* Actions list */}
+            <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
+              {/* On Desktop: Show location here */}
+              <div className="hidden md:flex">
+                <button
+                  type="button"
+                  onClick={() => setShowLocationSelectorModal(true)}
+                  className="flex items-center space-x-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 rounded-full border border-slate-700/60 transition shadow-inner cursor-pointer"
+                >
+                  <MapPin className="w-3 h-3 text-emerald-400 animate-pulse shrink-0" />
+                  <span className="text-[9.5px] font-mono font-bold tracking-tight truncate max-w-[150px]">
+                    {currentSelectedLocation ? (currentSelectedLocation.includes(':') ? currentSelectedLocation.split(':')[1].trim() : currentSelectedLocation.split(',')[0]) : "Koramangala, Bengaluru"}
+                  </span>
+                  <span className="text-[8px] text-amber-400 font-black uppercase tracking-wider">▼ CHANGE</span>
+                </button>
               </div>
+
+              {/* Refer & Earn Premium Header Action */}
+              <motion.button
+                type="button"
+                onClick={() => {
+                  setWalletInitialTab('referral');
+                  setActiveTab('wallet');
+                }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="flex items-center space-x-1 px-2.5 py-1.5 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-500 hover:to-yellow-600 text-slate-950 font-display font-black text-[9px] uppercase rounded-full shadow-sm cursor-pointer border border-amber-300/30 transition-all shrink-0"
+              >
+                <Ticket className="w-3.5 h-3.5 text-slate-950" />
+                <span className="hidden sm:inline">Refer & Earn</span>
+                <span className="sm:hidden">Refer</span>
+              </motion.button>
+
+              {/* Cart trigger with counts badge */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('checkout')}
+                className="relative p-1.5 hover:bg-slate-800 rounded-xl transition cursor-pointer text-slate-300 shrink-0"
+                title="Super comparison cart checkout"
+              >
+                <ShoppingCart className="w-4.5 h-4.5" />
+                {cartUnifiedCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-amber-500 text-slate-950 font-display text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border-2 border-slate-900">
+                    {cartUnifiedCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Quick avatar link with instant navigation to preferences (AccountPage) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setAccountInitialSection('edit_profile');
+                  setActiveTab('preferences');
+                }}
+                className="w-8 h-8 rounded-full bg-amber-400 hover:scale-105 active:scale-95 text-slate-950 flex items-center justify-center font-display font-black text-xs uppercase shadow-xs select-none cursor-pointer transition border border-amber-350 shrink-0"
+                title="Account settings"
+              >
+                {userProfile.name.slice(0,2).toUpperCase()}
+              </button>
             </div>
           </div>
 
-            <div className="flex items-center space-x-3.5">
-              {/* CURRENT LOCATION HEADER TAB */}
-              <button
-                type="button"
-                onClick={() => setShowLocationSelectorModal(true)}
-                className="flex items-center space-x-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 rounded-full border border-slate-700/60 transition shadow-inner cursor-pointer"
-              >
-                <MapPin className="w-3 h-3 text-emerald-400 animate-pulse shrink-0" />
-                <span className="text-[9.5px] font-mono font-bold tracking-tight truncate max-w-[100px] sm:max-w-[150px]">
-                  {currentSelectedLocation ? (currentSelectedLocation.includes(':') ? currentSelectedLocation.split(':')[1].trim() : currentSelectedLocation.split(',')[0]) : "Koramangala, Bengaluru"}
-                </span>
-                <span className="text-[8px] text-amber-400 font-black uppercase tracking-wider hidden sm:inline">▼ CHANGE</span>
-              </button>
-
-              {/* Refer & Earn Premium Header Action */}
-            <motion.button
-              type="button"
-              onClick={() => {
-                setWalletInitialTab('referral');
-                setActiveTab('wallet');
-              }}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="flex items-center space-x-1 px-2.5 py-1 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-500 hover:to-yellow-600 text-slate-950 font-display font-black text-[9px] uppercase rounded-full shadow-sm cursor-pointer border border-amber-300/30 transition-all"
-            >
-              <motion.div
-                animate={{ rotate: [0, -10, 10, -10, 10, 0] }}
-                transition={{ repeat: Infinity, duration: 2.5, repeatDelay: 1 }}
-                className="relative"
-              >
-                <Ticket className="w-3.5 h-3.5 text-slate-950" />
-              </motion.div>
-              <span className="hidden sm:inline">Refer & Earn</span>
-              <span className="sm:hidden">Refer</span>
-            </motion.button>
-
-            {/* Cart trigger with counts badge */}
+          {/* On Mobile: Show a dedicated, full-width, beautiful location row underneath so it fits and aligns perfectly */}
+          <div className="flex md:hidden w-full pt-1.5">
             <button
               type="button"
-              onClick={() => setActiveTab('checkout')}
-              className="relative p-1.5 hover:bg-slate-800 rounded-xl transition cursor-pointer text-slate-300"
-              title="Super comparison cart checkout"
+              onClick={() => setShowLocationSelectorModal(true)}
+              className="flex items-center justify-between w-full px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-100 rounded-xl border border-slate-700/60 transition shadow-inner cursor-pointer"
             >
-              <ShoppingCart className="w-4.5 h-4.5" />
-              {cartUnifiedCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-amber-500 text-slate-950 font-display text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border-2 border-slate-900">
-                  {cartUnifiedCount}
+              <div className="flex items-center space-x-2 truncate">
+                <MapPin className="w-3.5 h-3.5 text-emerald-400 animate-pulse shrink-0" />
+                <span className="text-[10px] font-mono font-bold tracking-tight text-slate-200 truncate">
+                  Deliver to: {currentSelectedLocation ? (currentSelectedLocation.includes(':') ? currentSelectedLocation.split(':')[1].trim() : currentSelectedLocation) : "Koramangala, Bengaluru"}
                 </span>
-              )}
-            </button>
-
-            {/* Quick avatar link with instant navigation to preferences (AccountPage) */}
-            <button
-              type="button"
-              onClick={() => {
-                setAccountInitialSection('edit_profile');
-                setActiveTab('preferences');
-              }}
-              className="w-8 h-8 rounded-full bg-amber-400 hover:scale-105 active:scale-95 text-slate-950 flex items-center justify-center font-display font-black text-xs uppercase shadow-xs select-none cursor-pointer transition border border-amber-350"
-              title="Account settings"
-            >
-              {userProfile.name.slice(0,2).toUpperCase()}
+              </div>
+              <span className="text-[8px] bg-slate-900 px-2 py-0.5 rounded text-amber-400 font-mono font-black uppercase tracking-wider shrink-0 ml-2">CHANGE</span>
             </button>
           </div>
-        </div>
-
-        {/* GLOBAL CURRENT LOCATION SELECTOR IN HEADER REMOVED FOR OTHER TABS - DISPATCHED ONLY TO ACCOUNT PAGE ACCORDING TO USER SPECIFICATIONS */}
         </header>
 
         {/* LOCATION SELECTOR OVERLAY MODAL */}
@@ -1532,35 +1632,15 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Dynamic Global Navigation Path & Page Indicator - Hidden on home tab per user specifications */}
+        {/* Dynamic Global Navigation Path & Previous Button - Just that button only, no full line background */}
         {activeTab !== 'home' && (
-          <div className="bg-slate-900 text-white border-b border-slate-800 px-4 py-2.5 flex items-center justify-between sticky top-[57px] z-20 text-[10.5px] font-mono font-bold tracking-tight shadow-sm select-none">
-            <div className="flex items-center space-x-2">
-              <span className="text-amber-400">CHALO ONE AI</span>
-              <span className="text-gray-600">/</span>
-              <span className="uppercase text-slate-200">
-                {activeTab === 'rides' ? 'Rides Comparison' :
-                 activeTab === 'food' ? 'Food Catalog' :
-                 activeTab === 'mart' ? 'Mart Delivery' :
-                 activeTab === 'stays' ? 'Stays Booking' :
-                 activeTab === 'intercity' ? 'Intercity Cabs' :
-                 activeTab === 'bills' ? 'Utility Recharges' :
-                 activeTab === 'wallet' ? 'Coins & Cards Wallet' :
-                 activeTab === 'activity' ? 'Live Activity Center' :
-                 activeTab === 'support' ? 'Support Ticket Desk' :
-                 activeTab === 'account' ? 'Profile & Account Settings' :
-                 activeTab + ' Service'}
-              </span>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setActiveTab('home')}
-                className="text-[9.5px] bg-amber-500 hover:bg-amber-600 text-slate-950 font-black px-2.5 py-1 rounded-lg transition uppercase flex items-center space-x-1 cursor-pointer shadow-xs"
-              >
-                <span>← Back to Dashboard</span>
-              </button>
-            </div>
+          <div className="px-4 py-2 flex items-center sticky top-[57px] z-20 bg-transparent select-none pointer-events-none">
+            <button
+              onClick={handleGoBack}
+              className="pointer-events-auto text-[11px] bg-slate-900 hover:bg-slate-800 text-white border border-slate-750 font-extrabold px-3.5 py-1.5 rounded-full transition uppercase flex items-center space-x-1 cursor-pointer shadow-md hover:scale-102"
+            >
+              <span>← Previous</span>
+            </button>
           </div>
         )}
 
@@ -1764,23 +1844,11 @@ export default function App() {
 
                   {/* Main Launch Categories Grid: SHOWING VISUAL PRIMARY AGGREGATIONS TOGETHER */}
                   <div id="categories_grid_container">
+
+
                     <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest pl-1 font-mono">Go & Order Comparison Services</span>
-                    <motion.div 
-                      id="categories_motion_grid"
-                      variants={{
-                        hidden: { opacity: 0 },
-                        visible: {
-                          opacity: 1,
-                          transition: {
-                            staggerChildren: 0.05
-                          }
-                        }
-                      }}
-                      initial="hidden"
-                      animate="visible"
-                      className="grid grid-cols-1 md:grid-cols-3 gap-3.5 mt-2 font-display font-bold"
-                    >
-                      {[
+                    {(() => {
+                      const allTiles = [
                         { 
                           id: 'rides', 
                           title: '🚕 Local Cabs', 
@@ -1829,39 +1897,94 @@ export default function App() {
                           tab: 'bills',
                           label: 'Pay Bills ➔'
                         }
-                      ].map(tile => (
-                        <motion.div
-                          key={tile.id}
-                          id={`category_tile_${tile.id}`}
+                      ];
+
+                      // Filter tiles based on globalSearchQuery
+                      const visibleTiles = allTiles.filter(tile => {
+                        if (!globalSearchQuery.trim()) return true;
+                        const query = globalSearchQuery.toLowerCase();
+                        return (
+                          tile.title.toLowerCase().includes(query) ||
+                          tile.desc.toLowerCase().includes(query) ||
+                          tile.id.toLowerCase().includes(query)
+                        );
+                      });
+
+                      if (visibleTiles.length === 0) {
+                        return (
+                          <div id="no_services_match_message" className="bg-white border border-rose-100 rounded-3xl p-6 text-center space-y-3 shadow-xs mt-2">
+                            <div className="mx-auto w-12 h-12 bg-rose-50 rounded-full flex items-center justify-center text-rose-500">
+                              <SlidersHorizontal className="w-6 h-6 animate-pulse" />
+                            </div>
+                            <h3 className="text-xs font-black text-gray-950 uppercase tracking-tight">No services match your criteria</h3>
+                            <p className="text-[11px] text-gray-500 max-w-sm mx-auto leading-relaxed">
+                              We couldn't find any Chalo One modules matching your filter "{globalSearchQuery}". Please try resetting or clear the search field to view all services.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setGlobalSearchQuery('');
+                                setGlobalSearchFocused(false);
+                              }}
+                              className="px-4 py-2 bg-slate-900 hover:bg-slate-950 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition cursor-pointer"
+                            >
+                              Clear Search Filter
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <motion.div 
+                          id="categories_motion_grid"
                           variants={{
-                            hidden: { opacity: 0, scale: 0.9, y: 15 },
-                            visible: { 
-                              opacity: 1, 
-                              scale: 1, 
-                              y: 0,
-                              transition: { type: 'spring', stiffness: 260, damping: 20 }
-                            },
-                            hover: { 
-                              scale: 1.02, 
-                              y: -2, 
-                              boxShadow: '0 8px 16px -2px rgba(0,0,0,0.04), 0 4px 6px -1px rgba(0,0,0,0.01)',
-                              transition: { type: 'spring', stiffness: 440, damping: 14 }
+                            hidden: { opacity: 0 },
+                            visible: {
+                              opacity: 1,
+                              transition: {
+                                staggerChildren: 0.05
+                              }
                             }
                           }}
-                          whileHover="hover"
-                          onClick={() => setActiveTab(tile.tab as any)}
-                          className={`p-4 rounded-3xl border flex flex-col justify-between shadow-xs transition-all space-y-3.5 cursor-pointer ${tile.colorClass}`}
+                          initial="hidden"
+                          animate="visible"
+                          className="grid grid-cols-1 md:grid-cols-3 gap-3.5 mt-2 font-display font-bold"
                         >
-                          <div>
-                            <span className="text-xs font-black tracking-tight leading-none uppercase">{tile.title}</span>
-                            <span className="text-[10.5px] text-gray-400 font-medium font-sans leading-relaxed mt-2.5 block">{tile.desc}</span>
-                          </div>
-                          <div className="pt-1.5 flex items-center justify-between">
-                            <span className="text-[10px] font-black uppercase tracking-wide opacity-90">{tile.label}</span>
-                          </div>
+                          {visibleTiles.map(tile => (
+                            <motion.div
+                              key={tile.id}
+                              id={`category_tile_${tile.id}`}
+                              variants={{
+                                hidden: { opacity: 0, scale: 0.9, y: 15 },
+                                visible: { 
+                                  opacity: 1, 
+                                  scale: 1, 
+                                  y: 0,
+                                  transition: { type: 'spring', stiffness: 260, damping: 20 }
+                                },
+                                hover: { 
+                                  scale: 1.02, 
+                                  y: -2, 
+                                  boxShadow: '0 8px 16px -2px rgba(0,0,0,0.04), 0 4px 6px -1px rgba(0,0,0,0.01)',
+                                  transition: { type: 'spring', stiffness: 440, damping: 14 }
+                                }
+                              }}
+                              whileHover="hover"
+                              onClick={() => setActiveTab(tile.tab as any)}
+                              className={`p-4 rounded-3xl border flex flex-col justify-between shadow-xs transition-all space-y-3.5 cursor-pointer ${tile.colorClass}`}
+                            >
+                              <div>
+                                <span className="text-xs font-black tracking-tight leading-none uppercase">{tile.title}</span>
+                                <span className="text-[10.5px] text-gray-400 font-medium font-sans leading-relaxed mt-2.5 block">{tile.desc}</span>
+                              </div>
+                              <div className="pt-1.5 flex items-center justify-between">
+                                <span className="text-[10px] font-black uppercase tracking-wide opacity-90">{tile.label}</span>
+                              </div>
+                            </motion.div>
+                          ))}
                         </motion.div>
-                      ))}
-                    </motion.div>
+                      );
+                    })()}
                   </div>
 
                   {/* REST OF THE FEATURES SHOWING SEGREGATED TOGETHER BELOW WITH USES */}
@@ -1869,7 +1992,10 @@ export default function App() {
                     <span className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest pl-1 font-mono">Assisted Intelligence & Wallet Utilities</span>
                     
                     {/* A. Chalo One AI Shortcuts block */}
-                    <div className="bg-gradient-to-br from-indigo-900 to-indigo-950 text-white rounded-3xl p-4.5 border border-indigo-950 space-y-3 shadow-md">
+                    <div 
+                      onClick={() => setActiveTab('ai')}
+                      className="bg-gradient-to-br from-indigo-900 to-indigo-950 text-white rounded-3xl p-4.5 border border-indigo-950 hover:border-indigo-400 space-y-3 shadow-md cursor-pointer hover:scale-[1.01] active:scale-99 transition-all duration-150"
+                    >
                       <div className="flex items-center space-x-1.5">
                         <Bot className="w-4 h-4 text-amber-350 animate-pulse shrink-0" />
                         <span className="text-[9.5px] text-amber-350 font-mono font-extrabold uppercase tracking-widest">Chalo One AI Live Optimizer</span>
@@ -1879,18 +2005,20 @@ export default function App() {
                         "Behrouz Biryani has a flat **discount coupon** on Zomato, lowering final cart cost to **₹285** vs Swiggy checkout price of **₹320**. Recommend comparing Blinkit groceries for instant milk deals saving 10%."
                       </p>
 
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab('ai')}
-                        className="flex items-center space-x-1 text-[10.5px] text-amber-350 font-black uppercase hover:underline cursor-pointer pl-0.5"
-                      >
+                      <div className="flex items-center space-x-1 text-[10.5px] text-amber-350 font-black uppercase hover:underline pl-0.5">
                         <span>Consult AI engine</span>
                         <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
+                      </div>
                     </div>
 
                     {/* B. Quick Wallet block */}
-                    <div className="bg-white p-4.5 rounded-3xl border border-gray-150 shadow-xs flex justify-between items-center text-xs">
+                    <div 
+                      onClick={() => {
+                        setWalletInitialTab('wallet');
+                        setActiveTab('wallet');
+                      }}
+                      className="bg-white p-4.5 rounded-3xl border border-gray-150 hover:border-amber-400 shadow-xs flex justify-between items-center text-xs cursor-pointer hover:bg-amber-50/10 hover:scale-[1.01] active:scale-99 transition-all duration-150"
+                    >
                       <div className="flex items-center space-x-3">
                         <div className="p-3 bg-amber-50 border border-amber-200 text-amber-700 rounded-2xl shadow-xs">
                           <Wallet className="w-4.5 h-4.5" />
@@ -1903,21 +2031,17 @@ export default function App() {
 
                       <div className="text-right font-mono text-xs shrink-0 pl-1">
                         <strong className="text-sm font-black text-gray-950 block">₹{wallet.balance.toFixed(2)}</strong>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setWalletInitialTab('wallet');
-                            setActiveTab('wallet');
-                          }}
-                          className="text-[9.5px] text-amber-600 font-black uppercase hover:underline mt-0.5 block"
-                        >
+                        <span className="text-[9.5px] text-amber-600 font-black uppercase hover:underline mt-0.5 block">
                           Details & Code
-                        </button>
+                        </span>
                       </div>
                     </div>
 
                     {/* C. Interactive Unified Cart summary */}
-                    <div className="bg-white p-4.5 rounded-3xl border border-gray-150 shadow-xs flex justify-between items-center text-xs">
+                    <div 
+                      onClick={() => setActiveTab('checkout')}
+                      className="bg-white p-4.5 rounded-3xl border border-gray-150 hover:border-amber-400 shadow-xs flex justify-between items-center text-xs cursor-pointer hover:bg-amber-50/10 hover:scale-[1.01] active:scale-99 transition-all duration-150"
+                    >
                       <div className="flex items-center space-x-3">
                         <div className="p-3 bg-slate-900 text-white rounded-2xl shadow-xs relative">
                           <ShoppingCart className="w-4.5 h-4.5" />
@@ -1931,7 +2055,6 @@ export default function App() {
                       <div className="text-right shrink-0">
                         <button
                           type="button"
-                          onClick={() => setActiveTab('checkout')}
                           className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[9.5px] uppercase rounded-xl transition cursor-pointer"
                         >
                           Checkout Cart
@@ -1939,7 +2062,159 @@ export default function App() {
                       </div>
                     </div>
 
+                    {/* D. Live Interactive Platform Radar */}
+                    <div className="bg-white p-4.5 rounded-3xl border border-gray-150 shadow-xs space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <Compass className="w-4 h-4 text-amber-500 animate-spin" />
+                          <h3 className="font-extrabold text-gray-900 uppercase text-[11px] tracking-tight">Chalo Active Live Radar</h3>
+                        </div>
+                        <span className="text-[8px] bg-emerald-100 text-emerald-850 font-mono font-bold px-1.5 py-0.5 rounded-full uppercase">All Engines Green</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div 
+                          onClick={() => setActiveTab('rides')}
+                          className="p-2.5 bg-slate-50 hover:bg-blue-50/40 rounded-2xl border border-slate-100 hover:border-blue-200 text-[11px] cursor-pointer transition duration-150 hover:scale-[1.02]"
+                        >
+                          <div className="flex items-center justify-between text-[9px] font-mono font-bold uppercase text-slate-400">
+                            <span>CAB NETWORKS</span>
+                            <span className="text-emerald-600">● 100% ONLINE</span>
+                          </div>
+                          <p className="font-bold text-slate-800 mt-1">Uber vs Ola surge matches</p>
+                          <span className="text-[9.5px] text-slate-500 block mt-0.5 leading-snug font-medium">Average savings per trip: ₹45 with Chalo optimizer</span>
+                        </div>
+                        <div 
+                          onClick={() => setActiveTab('mart')}
+                          className="p-2.5 bg-slate-50 hover:bg-emerald-50/40 rounded-2xl border border-slate-100 hover:border-emerald-200 text-[11px] cursor-pointer transition duration-150 hover:scale-[1.02]"
+                        >
+                          <div className="flex items-center justify-between text-[9px] font-mono font-bold uppercase text-slate-400">
+                            <span>GROCERY SPEED</span>
+                            <span className="text-emerald-600">● 10 MINS</span>
+                          </div>
+                          <p className="font-bold text-slate-800 mt-1">Blinkit, Zepto, Instamart</p>
+                          <span className="text-[9.5px] text-slate-500 block mt-0.5 leading-snug font-medium">Highest density stock: Koramangala Warehouse</span>
+                        </div>
+                      </div>
+                    </div>
 
+                    {/* E. Chalo One Stats & Savings Analyzer */}
+                    <div 
+                      onClick={() => {
+                        setWalletInitialTab('wallet');
+                        setActiveTab('wallet');
+                      }}
+                      className="bg-gradient-to-r from-teal-900 to-emerald-950 text-white p-5 rounded-3xl space-y-4 shadow-sm relative overflow-hidden border border-emerald-900 cursor-pointer hover:border-emerald-400 transition-all duration-150"
+                    >
+                      <div className="absolute right-0 bottom-0 opacity-10 pointer-events-none text-9xl font-black font-mono rotate-12 select-none">
+                        ₹
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[8.5px] bg-white/20 text-emerald-300 font-mono font-extrabold uppercase px-2 py-0.5 rounded-full inline-block">
+                          CHALO ONE METRICS
+                        </span>
+                        <h4 className="text-sm font-display font-black tracking-tight pt-1">
+                          Consolidated Weekly Savings Ledger (Click for ledger wallet)
+                        </h4>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-center pt-1.5">
+                        <div 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveTab('rides');
+                          }}
+                          className="bg-white/10 hover:bg-white/25 p-2.5 rounded-2xl border border-white/10 hover:border-blue-400 cursor-pointer transition duration-150"
+                        >
+                          <span className="text-[9px] text-emerald-300 font-mono font-bold block">CAB DEALS</span>
+                          <strong className="text-base font-black font-mono text-emerald-100 block mt-0.5">₹420</strong>
+                          <span className="text-[8px] text-emerald-300 font-bold block mt-0.5">Sourced Tab ➔</span>
+                        </div>
+                        <div 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveTab('food');
+                          }}
+                          className="bg-white/10 hover:bg-white/25 p-2.5 rounded-2xl border border-white/10 hover:border-orange-400 cursor-pointer transition duration-150"
+                        >
+                          <span className="text-[9px] text-emerald-300 font-mono font-bold block">FOOD SAVINGS</span>
+                          <strong className="text-base font-black font-mono text-emerald-100 block mt-0.5">₹350</strong>
+                          <span className="text-[8px] text-emerald-300 font-bold block mt-0.5">Sourced Tab ➔</span>
+                        </div>
+                        <div 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveTab('mart');
+                          }}
+                          className="bg-white/10 hover:bg-white/25 p-2.5 rounded-2xl border border-white/10 hover:border-emerald-400 cursor-pointer transition duration-150"
+                        >
+                          <span className="text-[9px] text-emerald-300 font-mono font-bold block">GROCERY VALUE</span>
+                          <strong className="text-base font-black font-mono text-emerald-100 block mt-0.5">₹290</strong>
+                          <span className="text-[8px] text-emerald-300 font-bold block mt-0.5">Sourced Tab ➔</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* F. Smart Travel Planner Trigger Banner */}
+                    <div 
+                      onClick={() => {
+                        setAiInitialQuery("I want to plan a custom trip using the Chalo Smart Travel Planner 🚀");
+                        setActiveTab('ai');
+                      }}
+                      className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 hover:border-amber-400 rounded-3xl p-4.5 flex items-center justify-between gap-4 text-xs cursor-pointer hover:scale-[1.01] active:scale-99 transition-all duration-150"
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center space-x-1.5 text-amber-700">
+                          <Sparkles className="w-4 h-4 animate-pulse shrink-0" />
+                          <span className="font-extrabold text-[10.5px] uppercase tracking-wide">Elite Vacation Planner</span>
+                        </div>
+                        <p className="font-semibold text-slate-800 leading-snug">
+                          Planning a trip? Our interactive chatbot designs the perfect day-by-day comfort & family-wise itinerary.
+                        </p>
+                        <span className="text-[9.5px] text-slate-500 block font-mono font-bold">100% Kid, Elder, and Pet Friendly connectivity planning</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[9.5px] uppercase rounded-xl transition cursor-pointer shadow-xs shrink-0"
+                      >
+                        Plan Trip
+                      </button>
+                    </div>
+
+                    {/* G. Partner Hotspots & Trending Route Quotes */}
+                    <div className="bg-white p-4.5 rounded-3xl border border-gray-150 shadow-xs space-y-3.5">
+                      <span className="text-[9.5px] text-gray-400 font-black uppercase font-mono tracking-widest block">Trending Platform Routines</span>
+                      <div className="space-y-2.5 divide-y divide-slate-100 text-xs">
+                        <div 
+                          onClick={() => setActiveTab('intercity')}
+                          className="pt-2 pb-2 flex items-center justify-between text-slate-700 cursor-pointer hover:bg-slate-50/80 hover:scale-[1.005] px-2 rounded-xl border border-transparent hover:border-slate-150 transition-all duration-150"
+                        >
+                          <div>
+                            <p className="font-extrabold text-slate-800">Jaipur to Delhi NCR Cab route</p>
+                            <span className="text-[10px] text-slate-500 mt-0.5 block font-sans font-medium">Compare stay navigator and outstation tariffs</span>
+                          </div>
+                          <span className="font-mono font-black text-amber-600 bg-amber-50 px-2.5 py-1 rounded-lg">₹4,800 Sourced</span>
+                        </div>
+                        <div 
+                          onClick={() => setActiveTab('mart')}
+                          className="pt-2.5 pb-2 flex items-center justify-between text-slate-700 cursor-pointer hover:bg-slate-50/80 hover:scale-[1.005] px-2 rounded-xl border border-transparent hover:border-slate-150 transition-all duration-150"
+                        >
+                          <div>
+                            <p className="font-extrabold text-slate-800">10-Min Organic Vegetables Bag</p>
+                            <span className="text-[10px] text-slate-500 mt-0.5 block font-sans font-medium">Blinkit vs Instamart side-by-side match</span>
+                          </div>
+                          <span className="font-mono font-black text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg">₹120 Sourced</span>
+                        </div>
+                        <div 
+                          onClick={() => setActiveTab('rides')}
+                          className="pt-2.5 pb-2 flex items-center justify-between text-slate-700 cursor-pointer hover:bg-slate-50/80 hover:scale-[1.005] px-2 rounded-xl border border-transparent hover:border-slate-150 transition-all duration-150"
+                        >
+                          <div>
+                            <p className="font-extrabold text-slate-800">Whitefield tech park airport express</p>
+                            <span className="text-[10px] text-slate-500 mt-0.5 block font-sans font-medium">Cheapest luxury cabs matching Ola and Uber</span>
+                          </div>
+                          <span className="font-mono font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg">₹850 Sourced</span>
+                        </div>
+                      </div>
+                    </div>
 
                   </div>
 
@@ -1957,6 +2232,8 @@ export default function App() {
                   setActiveTab={setActiveTab}
                   connectedAccounts={connectedAccounts}
                   currentSelectedLocation={currentSelectedLocation}
+                  redirectToLinkedAccounts={redirectToLinkedAccounts}
+                  onBackRegister={setModuleBackHandler}
                 />
               )}
 
@@ -1968,6 +2245,8 @@ export default function App() {
                   connectedAccounts={connectedAccounts}
                   currentSelectedLocation={currentSelectedLocation}
                   preferenceMode={preferences.preferenceMode}
+                  redirectToLinkedAccounts={redirectToLinkedAccounts}
+                  onBackRegister={setModuleBackHandler}
                 />
               )}
 
@@ -1983,6 +2262,8 @@ export default function App() {
                   setActiveTab={setActiveTab}
                   connectedAccounts={connectedAccounts}
                   currentSelectedLocation={currentSelectedLocation}
+                  redirectToLinkedAccounts={redirectToLinkedAccounts}
+                  onBackRegister={setModuleBackHandler}
                 />
               )}
 
@@ -1997,6 +2278,7 @@ export default function App() {
                   setActiveTab={setActiveTab}
                   connectedAccounts={connectedAccounts}
                   currentSelectedLocation={currentSelectedLocation}
+                  redirectToLinkedAccounts={redirectToLinkedAccounts}
                 />
               )}
 
@@ -2009,6 +2291,9 @@ export default function App() {
                   connectedAccounts={connectedAccounts}
                   currentSelectedLocation={currentSelectedLocation}
                   preferenceMode={preferences.preferenceMode}
+                  redirectToLinkedAccounts={redirectToLinkedAccounts}
+                  setAiInitialQuery={setAiInitialQuery}
+                  onBackRegister={setModuleBackHandler}
                 />
               )}
 
@@ -2035,6 +2320,11 @@ export default function App() {
                   initialQuery={aiInitialQuery}
                   onClearInitialQuery={() => setAiInitialQuery('')}
                   setActiveTab={setActiveTab}
+                  isDedicatedPage={true}
+                  onMinimize={() => {
+                    setActiveTab('home');
+                    setShowFloatingChat(true);
+                  }}
                 />
               )}
 
@@ -2206,13 +2496,28 @@ export default function App() {
                         <Bot className="w-4 h-4 text-amber-400 animate-pulse" />
                         <span className="text-xs font-black uppercase tracking-wider font-display text-amber-450">Chalo One AI Chat</span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowFloatingChat(false)}
-                        className="text-slate-400 hover:text-white transition text-xs font-bold font-mono p-1"
-                      >
-                        Close ✕
-                      </button>
+                      <div className="flex items-center space-x-2">
+                        {/* Maximize to Dedicated Page Button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveTab('ai');
+                            setShowFloatingChat(false);
+                          }}
+                          className="flex items-center space-x-1 text-slate-300 hover:text-amber-400 transition text-[10px] font-bold uppercase tracking-wider bg-slate-800 px-2 py-1 rounded-lg border border-slate-750 cursor-pointer"
+                          title="Open in Full Dedicated View"
+                        >
+                          <Maximize2 className="w-3 h-3" />
+                          <span className="hidden sm:inline">Maximize</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowFloatingChat(false)}
+                          className="text-slate-400 hover:text-white transition text-xs font-bold font-mono p-1 cursor-pointer"
+                        >
+                          Close ✕
+                        </button>
+                      </div>
                     </div>
 
                     {/* Main Chat Assistant Frame inside Floater */}

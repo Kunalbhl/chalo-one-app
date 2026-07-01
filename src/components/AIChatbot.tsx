@@ -23,6 +23,7 @@ export default function AIChatbot({ userPreferences }: AIChatbotProps) {
   ]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showBillingAlert, setShowBillingAlert] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const quickPrompts = [
@@ -66,6 +67,9 @@ export default function AIChatbot({ userPreferences }: AIChatbotProps) {
       }
 
       const data = await response.json();
+      if (data.isBillingError || data.isFallback) {
+        setShowBillingAlert(true);
+      }
       
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
@@ -76,6 +80,7 @@ export default function AIChatbot({ userPreferences }: AIChatbotProps) {
 
     } catch (e: any) {
       console.error(e);
+      setShowBillingAlert(true);
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -104,6 +109,26 @@ export default function AIChatbot({ userPreferences }: AIChatbotProps) {
           ● Online
         </span>
       </div>
+
+      {showBillingAlert && (
+        <div id="gemini_billing_alert_banner" className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-start space-x-2.5 shadow-xs shrink-0">
+          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-[11px] text-amber-900 space-y-1">
+            <h4 className="font-extrabold uppercase tracking-tight text-[9px]">Chalo One Offline Heuristic Mode</h4>
+            <p className="text-[10px] leading-relaxed text-slate-700">
+              Your Google AI Studio prepayment credits are depleted (API Error 429).
+              To keep your Chalo experience fully continuous, we've enabled our high-fidelity Offline Local AI Advisor!
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowBillingAlert(false)}
+              className="text-[9px] font-black text-amber-700 hover:text-amber-800 uppercase tracking-wider block mt-1 hover:underline cursor-pointer"
+            >
+              Dismiss Notice ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 2. Messages conversation body */}
       <div className="flex-1 overflow-y-auto space-y-3.5 pr-1.5 py-2 scroll-smooth">

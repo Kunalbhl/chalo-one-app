@@ -9,7 +9,7 @@ interface ReferralAndWalletProps {
   redeemPointsToCash: (points: number) => void;
   initialTab?: 'wallet' | 'referral';
   userProfile?: UserProfile | null;
-  applyReferralCodePostSignup?: (code: string) => { success: boolean; message: string };
+  applyReferralCodePostSignup?: (code: string) => Promise<{ success: boolean; message: string }> | { success: boolean; message: string };
 }
 
 export default function ReferralAndWallet({ 
@@ -29,11 +29,11 @@ export default function ReferralAndWallet({
   const [retroReferralCode, setRetroReferralCode] = useState('');
   const [retroResultMsg, setRetroResultMsg] = useState<{ success: boolean; text: string } | null>(null);
 
-  const handleApplyRetroReferral = (e: React.FormEvent) => {
+  const handleApplyRetroReferral = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!retroReferralCode.trim() || !applyReferralCodePostSignup) return;
     
-    const res = applyReferralCodePostSignup(retroReferralCode);
+    const res = await applyReferralCodePostSignup(retroReferralCode);
     setRetroResultMsg({ success: res.success, text: res.message });
     if (res.success) {
       setRetroReferralCode('');
@@ -57,14 +57,38 @@ export default function ReferralAndWallet({
     return 'Payments';
   };
 
+  // Calculate dynamic real referrals based on signed-up users with matching referredBy code
+  const getRealReferrals = () => {
+    try {
+      const stored = localStorage.getItem('chalo_all_users');
+      if (stored && userProfile) {
+        const parsed = JSON.parse(stored);
+        const myCode = (userProfile.referralCode || '').toLowerCase().trim();
+        if (myCode) {
+          return parsed.filter((u: any) => u.referredBy && u.referredBy.toLowerCase().trim() === myCode);
+        }
+      }
+    } catch (e) {}
+    return [];
+  };
+
+  const realReferrals = getRealReferrals();
+  const signupCount = realReferrals.length;
+
+  // 2000 points base reward. If user has referred 5 or more members, they get 1000 extra bonus per registered user (total 3000 points per referral!)
+  const isSuperAmbassador = signupCount >= 5;
+  const basePointsPerReferral = 2000;
+  const extraBonusPoints = isSuperAmbassador ? 1000 : 0;
+  const referralPointsEarned = signupCount * (basePointsPerReferral + extraBonusPoints);
+
   // Invite codes information
   const referralState: ReferralState = {
     code: userProfile?.referralCode || "CHALO911KP",
-    pointsEarned: userProfile?.referredBy ? 14000 : 12000,
-    signupsCount: userProfile?.referredBy ? 7 : 6,
-    weeklyLeaderboard: LEADERBOARD_WEEKLY,
-    monthlyLeaderboard: LEADERBOARD_MONTHLY,
-    allTimeLeaderboard: LEADERBOARD_ALLTIME
+    pointsEarned: referralPointsEarned,
+    signupsCount: signupCount,
+    weeklyLeaderboard: realReferrals.map((r, i) => ({ rank: i + 1, name: r.name, points: basePointsPerReferral + extraBonusPoints })),
+    monthlyLeaderboard: realReferrals.map((r, i) => ({ rank: i + 1, name: r.name, points: basePointsPerReferral + extraBonusPoints })),
+    allTimeLeaderboard: realReferrals.map((r, i) => ({ rank: i + 1, name: r.name, points: basePointsPerReferral + extraBonusPoints }))
   };
 
   const handleCopyLink = () => {
@@ -113,8 +137,8 @@ export default function ReferralAndWallet({
     : referralState.allTimeLeaderboard;
 
   return (
-    <div id="referrals_and_wallet_container" className="p-4 max-w-xl mx-auto space-y-4 font-sans text-gray-800">
-      <div className="flex border-b border-gray-150 shrink-0">
+    <div id="referrals_and_wallet_container" className="p-4 max-w-7xl mx-auto space-y-4 font-sans text-gray-800 w-full">
+      <div className="flex border-b border-gray-150 shrink-0 max-w-xl mx-auto">
         <button
           type="button"
           onClick={() => setActiveTab('wallet')}
@@ -136,123 +160,126 @@ export default function ReferralAndWallet({
       </div>
 
       {activeTab === 'wallet' ? (
-        <div className="space-y-4 animate-fade-in">
-          {/* Card Wallet Display Balance / Points */}
-          <div className="bg-gradient-to-br from-amber-500 to-amber-600 text-white rounded-2xl p-5 shadow-md relative overflow-hidden">
-            <div className="absolute right-0 bottom-0 opacity-10 font-bold font-mono text-9xl pointer-events-none select-none">
-              ₹
-            </div>
-
-            <div className="flex justify-between items-start">
-              <div>
-                <span className="text-xs uppercase tracking-widest text-amber-100 font-semibold font-mono">CHALO WALLET SUPERPAY</span>
-                <h4 className="text-3xl font-mono font-extrabold mt-1">₹{wallet.balance.toFixed(2)}</h4>
+        <div className="animate-fade-in grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Left Column: Cards and Action Forms */}
+          <div className="lg:col-span-7 space-y-4">
+            {/* Card Wallet Display Balance / Points */}
+            <div className="bg-gradient-to-br from-amber-500 to-amber-600 text-white rounded-2xl p-5 shadow-md relative overflow-hidden">
+              <div className="absolute right-0 bottom-0 opacity-10 font-bold font-mono text-9xl pointer-events-none select-none">
+                ₹
               </div>
-              <div className="text-right font-mono text-xs">
-                <span className="text-amber-100 uppercase tracking-wider text-[10px] font-bold block">Reward points</span>
-                <span className="text-lg font-extrabold">{wallet.points.toLocaleString('en-US')} PTS</span>
+
+              <div className="flex justify-between items-start">
+                <div>
+                  <span className="text-xs uppercase tracking-widest text-amber-100 font-semibold font-mono">CHALO WALLET SUPERPAY</span>
+                  <h4 className="text-3xl font-mono font-extrabold mt-1">₹{wallet.balance.toFixed(2)}</h4>
+                </div>
+                <div className="text-right font-mono text-xs">
+                  <span className="text-amber-100 uppercase tracking-wider text-[10px] font-bold block">Reward points</span>
+                  <span className="text-lg font-extrabold">{wallet.points.toLocaleString('en-US')} PTS</span>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-between items-center bg-amber-600/40 p-3 rounded-xl backdrop-blur-xs font-mono text-[10.5px]">
+                <div>
+                  <span className="text-amber-100 mr-2">Conversion Formula:</span>
+                  <strong className="text-white font-extrabold">20 PTS = ₹1</strong>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => addCoins(2000)} // Cheat code to add points
+                  className="bg-white/20 hover:bg-white/30 text-white transition font-extrabold px-3 py-1 rounded"
+                >
+                  ⚙️ Add Test +2000 pts
+                </button>
               </div>
             </div>
 
-            <div className="mt-6 flex justify-between items-center bg-amber-600/40 p-3 rounded-xl backdrop-blur-xs font-mono text-[10.5px]">
-              <div>
-                <span className="text-amber-100 mr-2">Conversion Formula:</span>
-                <strong className="text-white font-extrabold">20 PTS = ₹1</strong>
+            {/* Quick Point Redeem Center */}
+            <div id="points_redemption_card" className="bg-white rounded-2xl border border-gray-150 p-4 space-y-3 shadow-xs">
+              <div className="flex items-center space-x-1">
+                <Gift className="w-5 h-5 text-amber-500" />
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest pl-1">Redeem points for Direct Cash</h3>
               </div>
-              <button
-                type="button"
-                onClick={() => addCoins(2000)} // Cheat code to add points
-                className="bg-white/20 hover:bg-white/30 text-white transition font-extrabold px-3 py-1 rounded"
-              >
-                ⚙️ Add Test +2000 pts
-              </button>
-            </div>
-          </div>
 
-          {/* Quick Point Redeem Center */}
-          <div id="points_redemption_card" className="bg-white rounded-2xl border border-gray-150 p-4 space-y-3 shadow-xs">
-            <div className="flex items-center space-x-1">
-              <Gift className="w-5 h-5 text-amber-500" />
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest pl-1">Redeem points for Direct Cash</h3>
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-150 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex-1">
+                    <label htmlFor="redeem_pts_input" className="text-[10px] text-gray-400 font-bold block mb-1">Enter Points to Redeem</label>
+                    <input
+                      id="redeem_pts_input"
+                      type="number"
+                      value={redeemPoints}
+                      onChange={(e) => setRedeemPoints(e.target.value)}
+                      placeholder="e.g. 2000"
+                      className="w-full text-sm font-extrabold text-gray-800 bg-white border border-gray-200 rounded-lg p-2 focus:ring-1 focus:ring-amber-500 outline-none"
+                    />
+                  </div>
+
+                  <div className="shrink-0 text-right">
+                    <span className="text-[10px] text-gray-400 font-bold block mb-1">Conversion Preview</span>
+                    <div className="bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-lg px-3 py-2 font-mono text-xs font-extrabold">
+                      +₹{((parseInt(redeemPoints) || 0) / 20).toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-[10.5px] text-slate-500 font-medium leading-relaxed bg-amber-50/50 p-2.5 rounded-lg border border-amber-100/50">
+                  <span className="font-bold text-amber-800">Conversion Rate:</span> 20 Points = ₹1 Cash. 
+                  <span className="block mt-0.5 text-[9.5px] text-slate-400">Redeem Points for direct cash will only add direct Chalo One Wallet cash credits. It is purely for in-app microsettlements and is <strong>not redeemable, withdrawable, or transferable for real money</strong>.</span>
+                </div>
+
+                <button
+                  type="button"
+                  id="points_redeemer_btn"
+                  onClick={processRedeem}
+                  className="w-full bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold py-2.5 rounded-xl transition cursor-pointer"
+                >
+                  Redeem instantly
+                </button>
+              </div>
             </div>
 
-            <div className="bg-gray-50 p-4 rounded-xl border border-gray-150 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex-1">
-                  <label htmlFor="redeem_pts_input" className="text-[10px] text-gray-400 font-bold block mb-1">Enter Points to Redeem</label>
+            {/* Money Transfer simulation form */}
+            <div className="bg-white rounded-2xl border border-gray-150 p-4 space-y-3 shadow-xs">
+              <div className="flex items-center space-x-1">
+                <ArrowRightLeft className="w-4.5 h-4.5 text-gray-400" />
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest pl-1">Instant Money Transfer</h3>
+              </div>
+
+              <form onSubmit={handleTransfer} className="space-y-2.5">
+                <div className="grid grid-cols-2 gap-2.5">
                   <input
-                    id="redeem_pts_input"
+                    type="tel"
+                    value={transferPhone}
+                    onChange={(e) => setTransferPhone(e.target.value)}
+                    placeholder="Receiver Phone (10 digit)"
+                    className="bg-gray-50 border border-gray-150 p-2.5 rounded-xl text-xs font-semibold outline-none"
+                    required
+                  />
+                  <input
                     type="number"
-                    value={redeemPoints}
-                    onChange={(e) => setRedeemPoints(e.target.value)}
-                    placeholder="e.g. 2000"
-                    className="w-full text-sm font-extrabold text-gray-800 bg-white border border-gray-200 rounded-lg p-2 focus:ring-1 focus:ring-amber-500 outline-none"
+                    value={transferAmount}
+                    onChange={(e) => setTransferAmount(e.target.value)}
+                    placeholder="Amount (in Rupees)"
+                    className="bg-gray-50 border border-gray-150 p-2.5 rounded-xl text-xs font-semibold outline-none"
+                    required
                   />
                 </div>
 
-                <div className="shrink-0 text-right">
-                  <span className="text-[10px] text-gray-400 font-bold block mb-1">Conversion Preview</span>
-                  <div className="bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-lg px-3 py-2 font-mono text-xs font-extrabold">
-                    +₹{((parseInt(redeemPoints) || 0) / 20).toFixed(2)}
-                  </div>
-                </div>
-              </div>
-
-              <div className="text-[10.5px] text-slate-500 font-medium leading-relaxed bg-amber-50/50 p-2.5 rounded-lg border border-amber-100/50">
-                <span className="font-bold text-amber-800">Conversion Rate:</span> 20 Points = ₹1 Cash. 
-                <span className="block mt-0.5 text-[9.5px] text-slate-400">Redeem Points for direct cash will only add direct Chalo One Wallet cash credits. It is purely for in-app microsettlements and is <strong>not redeemable, withdrawable, or transferable for real money</strong>.</span>
-              </div>
-
-              <button
-                type="button"
-                id="points_redeemer_btn"
-                onClick={processRedeem}
-                className="w-full bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold py-2.5 rounded-xl transition cursor-pointer"
-              >
-                Redeem instantly
-              </button>
+                <button
+                  type="submit"
+                  id="transfer_money_btn"
+                  className="w-full bg-gray-900 hover:bg-black text-white text-xs font-extrabold py-2.5 rounded-xl transition cursor-pointer"
+                >
+                  Send Money
+                </button>
+              </form>
             </div>
           </div>
 
-          {/* Money Transfer simulation form */}
-          <div className="bg-white rounded-2xl border border-gray-150 p-4 space-y-3 shadow-xs">
-            <div className="flex items-center space-x-1">
-              <ArrowRightLeft className="w-4.5 h-4.5 text-gray-400" />
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest pl-1">Instant Money Transfer</h3>
-            </div>
-
-            <form onSubmit={handleTransfer} className="space-y-2.5">
-              <div className="grid grid-cols-2 gap-2.5">
-                <input
-                  type="tel"
-                  value={transferPhone}
-                  onChange={(e) => setTransferPhone(e.target.value)}
-                  placeholder="Receiver Phone (10 digit)"
-                  className="bg-gray-50 border border-gray-150 p-2.5 rounded-xl text-xs font-semibold outline-none"
-                  required
-                />
-                <input
-                  type="number"
-                  value={transferAmount}
-                  onChange={(e) => setTransferAmount(e.target.value)}
-                  placeholder="Amount (in Rupees)"
-                  className="bg-gray-50 border border-gray-150 p-2.5 rounded-xl text-xs font-semibold outline-none"
-                  required
-                />
-              </div>
-
-              <button
-                type="submit"
-                id="transfer_money_btn"
-                className="w-full bg-gray-900 hover:bg-black text-white text-xs font-extrabold py-2.5 rounded-xl transition cursor-pointer"
-              >
-                Send Money
-              </button>
-            </form>
-          </div>
-
-          {/* Wallet Transaction history lists */}
-          <div className="space-y-3">
+          {/* Right Column: Transaction History */}
+          <div className="lg:col-span-5 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-0.5">Transaction Ledger</span>
               <div className="flex flex-wrap gap-1">
@@ -327,184 +354,203 @@ export default function ReferralAndWallet({
         </div>
       ) : (
         /* Referral program tab with Invitation card and weekly/monthly leaderboards */
-        <div className="space-y-4 animate-fade-in">
-          {/* Main Invitation info panel */}
-          <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-4 border border-indigo-150 flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="space-y-1.5 flex-1 text-center md:text-left">
-              <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase px-2 py-0.5 rounded font-mono">Chalo One Ambassador</span>
-              <h3 className="text-sm font-extrabold text-gray-950 font-display">Invite Friend ➔ Collect 2000 Points!</h3>
-              <p className="text-xs text-indigo-800 leading-relaxed font-semibold">
-                Earn equivalent to **₹100 direct Cash** the minute your friends sign-up on Chalo One! Weekly leaders get surprise hampers from our Brand Partners!
-              </p>
-            </div>
-            {/* Simple vector QR simulator */}
-            <div className="bg-white p-2.5 rounded-xl border border-indigo-100 flex flex-col items-center shrink-0">
-              <QrCode className="w-12 h-12 text-gray-800" />
-              <span className="text-[8.5px] font-bold text-gray-400 uppercase font-mono mt-1">Scan to Signup</span>
-            </div>
-          </div>
-
-          {/* Share links boxes */}
-          <div className="bg-white rounded-2xl border border-gray-150 p-4 space-y-3 shadow-xs">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-[9.5px] text-gray-400 font-bold block">YOUR INVITE CODE</span>
-                <strong className="text-base font-mono font-black text-gray-950 pl-0.5">{referralState.code}</strong>
-              </div>
-              <button
-                type="button"
-                onClick={handleCopyLink}
-                id="copy_referral_btn"
-                className="bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-extrabold py-2 px-4 rounded-xl transition cursor-pointer"
-              >
-                {copied ? 'Copied Link!' : 'Share Referral'}
-              </button>
-            </div>
-          </div>
-
-          {/* Retrospective post-signup referral input card */}
-          {userProfile && !userProfile.referredBy && (
-            <div className="bg-amber-50/60 border border-amber-200 rounded-2xl p-4 space-y-3 shadow-2xs">
-              <div>
-                <h4 className="text-xs font-black text-amber-950 uppercase tracking-wide flex items-center gap-1">
-                  <Gift className="w-4 h-4 text-amber-700 animate-bounce" />
-                  Missed adding referral code during Sign Up?
-                </h4>
-                <p className="text-[11px] text-amber-800 font-semibold leading-relaxed mt-0.5">
-                  Enter your friend's invite code here retrospectively to instantly unlock <strong>2,000 extra points</strong> (valued at ₹100 cash back) for BOTH of you!
+        <div className="animate-fade-in grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Left Column: Referral Actions and Info */}
+          <div className="lg:col-span-7 space-y-4">
+            {/* Main Invitation info panel */}
+            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-4 border border-indigo-150 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="space-y-1.5 flex-1 text-center md:text-left">
+                <span className="text-[10px] bg-indigo-600 text-white font-extrabold uppercase px-2 py-0.5 rounded font-mono">Chalo One Ambassador</span>
+                <h3 className="text-sm font-extrabold text-gray-950 font-display">Invite Friend ➔ Collect 2000 Points!</h3>
+                <p className="text-xs text-indigo-800 leading-relaxed font-semibold">
+                  Earn equivalent to **₹100 direct Cash** the minute your friends sign-up on Chalo One! Get <strong>1000 extra Bonus Points per referral</strong> after inviting 5 or more members!
                 </p>
               </div>
-
-              <form onSubmit={handleApplyRetroReferral} className="flex gap-2">
-                <input
-                  type="text"
-                  value={retroReferralCode}
-                  onChange={(e) => setRetroReferralCode(e.target.value)}
-                  placeholder="e.g. PARTNER_MEMBER, KUNAL123..."
-                  className="bg-white border border-amber-300 rounded-xl px-3 py-2 text-xs font-bold uppercase placeholder:normal-case outline-none focus:ring-1 focus:ring-amber-500 flex-1"
-                />
-                <button
-                  type="submit"
-                  className="bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black uppercase tracking-wider px-4 py-2 rounded-xl transition shadow-xs cursor-pointer"
-                >
-                  Apply Code
-                </button>
-              </form>
-
-              {retroResultMsg && (
-                <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
-                  retroResultMsg.success ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
-                }`}>
-                  {retroResultMsg.success ? (
-                    <>
-                      <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>{retroResultMsg.text}</span>
-                    </>
-                  ) : (
-                    <>
-                      <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-                      <span>{retroResultMsg.text}</span>
-                    </>
-                  )}
-                </div>
-              )}
+              {/* Simple vector QR simulator */}
+              <div className="bg-white p-2.5 rounded-xl border border-indigo-100 flex flex-col items-center shrink-0">
+                <QrCode className="w-12 h-12 text-gray-800" />
+                <span className="text-[8.5px] font-bold text-gray-400 uppercase font-mono mt-1">Scan to Signup</span>
+              </div>
             </div>
-          )}
 
-          {/* Already referred banner status */}
-          {userProfile && userProfile.referredBy && (
-            <div className="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-3.5 flex items-center justify-between shadow-2xs">
-              <div className="flex items-center space-x-2.5">
-                <div className="p-2 bg-emerald-100 rounded-xl text-emerald-700">
-                  <Gift className="w-4 h-4" />
-                </div>
+            {/* Share links boxes */}
+            <div className="bg-white rounded-2xl border border-gray-150 p-4 space-y-3 shadow-xs">
+              <div className="flex items-center justify-between">
                 <div>
-                  <h5 className="text-xs font-bold text-emerald-950 uppercase leading-none">Welcome Bonus Unlocked</h5>
-                  <span className="text-[10px] text-emerald-700 font-semibold block mt-1">Referred by: <strong className="font-mono text-xs uppercase">{userProfile.referredBy}</strong></span>
+                  <span className="text-[9.5px] text-gray-400 font-bold block">YOUR INVITE CODE</span>
+                  <strong className="text-base font-mono font-black text-gray-950 pl-0.5">{referralState.code}</strong>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  id="copy_referral_btn"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-extrabold py-2 px-4 rounded-xl transition cursor-pointer"
+                >
+                  {copied ? 'Copied Link!' : 'Share Referral'}
+                </button>
               </div>
-              <span className="text-[10px] font-mono font-black text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg uppercase">
-                +2,000 PTS Applied
-              </span>
-            </div>
-          )}
-
-          {/* Ambassador stats */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white border border-gray-150 p-3.5 rounded-2xl text-center shadow-xs">
-              <Users className="w-5 h-5 text-indigo-600 mx-auto mb-1" />
-              <span className="text-[10px] text-gray-400 font-bold uppercase block">Referral Signups</span>
-              <strong className="text-lg font-mono text-gray-950 block mt-0.5">{referralState.signupsCount} Friends</strong>
             </div>
 
-            <div className="bg-white border border-gray-150 p-3.5 rounded-2xl text-center shadow-xs flex flex-col justify-between items-center min-h-[110px]">
-              <div className="w-full">
-                <Award className="w-5 h-5 text-indigo-600 mx-auto mb-1" />
-                <span className="text-[10px] text-gray-400 font-bold uppercase block">Points Earned</span>
-                <strong className="text-lg font-mono text-gray-950 block mt-0.5">
-                  {Number(referralState.pointsEarned).toLocaleString('en-US')} PTS
-                </strong>
+            {/* Retrospective post-signup referral input card */}
+            {userProfile && !userProfile.referredBy && (
+              <div className="bg-amber-50/60 border border-amber-200 rounded-2xl p-4 space-y-3 shadow-2xs">
+                <div>
+                  <h4 className="text-xs font-black text-amber-950 uppercase tracking-wide flex items-center gap-1">
+                    <Gift className="w-4 h-4 text-amber-700 animate-bounce" />
+                    Missed adding referral code during Sign Up?
+                  </h4>
+                  <p className="text-[11px] text-amber-800 font-semibold leading-relaxed mt-0.5">
+                    Enter your friend's invite code here retrospectively to instantly unlock <strong>2,000 extra points</strong> (valued at ₹100 cash back) for BOTH of you!
+                  </p>
+                </div>
+
+                <form onSubmit={handleApplyRetroReferral} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={retroReferralCode}
+                    onChange={(e) => setRetroReferralCode(e.target.value)}
+                    placeholder="e.g. PARTNER_MEMBER, KUNAL123..."
+                    className="bg-white border border-amber-300 rounded-xl px-3 py-2 text-xs font-bold uppercase placeholder:normal-case outline-none focus:ring-1 focus:ring-amber-500 flex-1"
+                  />
+                  <button
+                    type="submit"
+                    className="bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black uppercase tracking-wider px-4 py-2 rounded-xl transition shadow-xs cursor-pointer"
+                  >
+                    Apply Code
+                  </button>
+                </form>
+
+                {retroResultMsg && (
+                  <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
+                    retroResultMsg.success ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                  }`}>
+                    {retroResultMsg.success ? (
+                      <>
+                        <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>{retroResultMsg.text}</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                        <span>{retroResultMsg.text}</span>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
-              <button
-                type="button"
-                id="btn_redirect_redeem"
-                onClick={() => {
-                  setActiveTab('wallet');
-                  setTimeout(() => {
-                    const el = document.getElementById('points_redemption_card');
-                    if (el) {
-                      el.scrollIntoView({ behavior: 'smooth' });
-                      el.classList.add('ring-2', 'ring-amber-400');
-                      setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400'), 2000);
-                    }
-                  }, 150);
-                }}
-                className="mt-2 text-[9px] bg-amber-100 hover:bg-amber-200 text-amber-800 px-2 py-1 rounded font-extrabold transition cursor-pointer"
-              >
-                Convert to cash credits ➔
-              </button>
-            </div>
+            )}
+
+            {/* Already referred banner status */}
+            {userProfile && userProfile.referredBy && (
+              <div className="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-3.5 flex items-center justify-between shadow-2xs">
+                <div className="flex items-center space-x-2.5">
+                  <div className="p-2 bg-emerald-100 rounded-xl text-emerald-700">
+                    <Gift className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h5 className="text-xs font-bold text-emerald-950 uppercase leading-none">Welcome Bonus Unlocked</h5>
+                    <span className="text-[10px] text-emerald-700 font-semibold block mt-1">Referred by: <strong className="font-mono text-xs uppercase">{userProfile.referredBy}</strong></span>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono font-black text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg uppercase">
+                  +2,000 PTS Applied
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* Gamified Referral Leaderboards */}
-          <div className="space-y-3.5 pt-1">
-            <div className="flex justify-between items-center pb-1">
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest font-mono">Leaderboard Rankings</span>
-              {/* Filter pills */}
-              <div className="flex space-x-1 bg-gray-100 p-0.5 rounded-lg border border-gray-200">
-                {(['weekly', 'monthly', 'alltime'] as const).map(period => (
-                  <button
-                    key={period}
-                    type="button"
-                    onClick={() => setActiveLeaderboardPeriod(period)}
-                    className={`px-2 py-1 rounded text-[10px] font-semibold uppercase whitespace-nowrap transition cursor-pointer ${
-                      activeLeaderboardPeriod === period ? 'bg-white text-gray-955 font-extrabold shadow-xs' : 'text-gray-500'
-                    }`}
-                  >
-                    {period}
-                  </button>
-                ))}
+          {/* Right Column: Ambassador Stats & Leaderboard rankings */}
+          <div className="lg:col-span-5 space-y-4">
+            {/* Ambassador stats */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-white border border-gray-150 p-3.5 rounded-2xl text-center shadow-xs">
+                <Users className="w-5 h-5 text-indigo-600 mx-auto mb-1" />
+                <span className="text-[10px] text-gray-400 font-bold uppercase block">Referral Signups</span>
+                <strong className="text-lg font-mono text-gray-950 block mt-0.5">{referralState.signupsCount} Friends</strong>
+                {isSuperAmbassador && (
+                  <span className="inline-block mt-1 text-[9px] font-extrabold uppercase bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded animate-pulse">
+                    ⚡ Super Ambassador
+                  </span>
+                )}
+              </div>
+
+              <div className="bg-white border border-gray-150 p-3.5 rounded-2xl text-center shadow-xs flex flex-col justify-between items-center min-h-[110px]">
+                <div className="w-full">
+                  <Award className="w-5 h-5 text-indigo-600 mx-auto mb-1" />
+                  <span className="text-[10px] text-gray-400 font-bold uppercase block">Points Earned</span>
+                  <strong className="text-lg font-mono text-gray-950 block mt-0.5">
+                    {Number(referralState.pointsEarned).toLocaleString('en-US')} PTS
+                  </strong>
+                </div>
+                <button
+                  type="button"
+                  id="btn_redirect_redeem"
+                  onClick={() => {
+                    setActiveTab('wallet');
+                    setTimeout(() => {
+                      const el = document.getElementById('points_redemption_card');
+                      if (el) {
+                        el.scrollIntoView({ behavior: 'smooth' });
+                        el.classList.add('ring-2', 'ring-amber-400');
+                        setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400'), 2000);
+                      }
+                    }, 150);
+                  }}
+                  className="mt-2 text-[9px] bg-amber-100 hover:bg-amber-200 text-amber-800 px-2 py-1 rounded font-extrabold transition cursor-pointer"
+                >
+                  Convert to cash credits ➔
+                </button>
               </div>
             </div>
 
-            {/* Leaderboard Lists */}
-            <div className="bg-white rounded-2xl border border-gray-150 overflow-hidden shadow-xs">
-              {leaderboardSource.map((user) => (
-                <div
-                  key={user.rank}
-                  className={`px-4 py-3 flex items-center justify-between border-b border-gray-50 last:border-none ${
-                    user.isMe ? 'bg-amber-50/50' : ''
-                  }`}
-                >
-                  <div className="flex items-center space-x-3">
-                    <span className={`w-5 text-xs font-extrabold leading-none ${user.rank === 1 ? 'text-amber-500 font-mono text-sm' : user.rank <= 3 ? 'text-indigo-600' : 'text-gray-400'}`}>
-                      {user.rank === 1 ? '🥇' : user.rank === 2 ? '🥈' : user.rank === 3 ? '🥉' : `#${user.rank}`}
-                    </span>
-                    <span className="text-xs font-bold text-gray-955">{user.name}</span>
-                  </div>
-                  <span className="text-xs font-mono font-extrabold text-indigo-700">{user.points} PTS</span>
+            {/* Gamified Referral Leaderboards */}
+            <div className="space-y-3.5 pt-1">
+              <div className="flex justify-between items-center pb-1">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest font-mono">My Joinees Leaderboard</span>
+                {/* Filter pills */}
+                <div className="flex space-x-1 bg-gray-100 p-0.5 rounded-lg border border-gray-200">
+                  {(['weekly', 'monthly', 'alltime'] as const).map(period => (
+                    <button
+                      key={period}
+                      type="button"
+                      onClick={() => setActiveLeaderboardPeriod(period)}
+                      className={`px-2 py-1 rounded text-[10px] font-semibold uppercase whitespace-nowrap transition cursor-pointer ${
+                        activeLeaderboardPeriod === period ? 'bg-white text-gray-955 font-extrabold shadow-xs' : 'text-gray-500'
+                      }`}
+                    >
+                      {period}
+                    </button>
+                  ))}
                 </div>
-              ))}
+              </div>
+
+              {/* Leaderboard Lists */}
+              <div className="bg-white rounded-2xl border border-gray-150 overflow-hidden shadow-xs">
+                {leaderboardSource.length > 0 ? (
+                  leaderboardSource.map((user) => (
+                    <div
+                      key={user.rank}
+                      className="px-4 py-3 flex items-center justify-between border-b border-gray-50 last:border-none"
+                    >
+                      <div className="flex items-center space-x-3">
+                        <span className={`w-5 text-xs font-extrabold leading-none ${user.rank === 1 ? 'text-amber-500 font-mono text-sm' : user.rank <= 3 ? 'text-indigo-600' : 'text-gray-400'}`}>
+                          {user.rank === 1 ? '🥇' : user.rank === 2 ? '🥈' : user.rank === 3 ? '🥉' : `#${user.rank}`}
+                        </span>
+                        <span className="text-xs font-bold text-gray-955">{user.name}</span>
+                      </div>
+                      <span className="text-xs font-mono font-extrabold text-indigo-700">+{user.points} PTS</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-6 text-center text-gray-400 space-y-2">
+                    <Users className="w-8 h-8 mx-auto text-gray-300 stroke-[1.5]" />
+                    <h5 className="text-xs font-bold text-gray-600">No Real Referrals Active</h5>
+                    <p className="text-[10.5px] leading-relaxed text-gray-400 max-w-xs mx-auto">
+                      Your invitees list is currently empty. Share your unique code above to see your real-time leaderboard update!
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

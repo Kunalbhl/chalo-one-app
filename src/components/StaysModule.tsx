@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HOTELS_CATALOG } from '../data';
 import { HotelOption, StayQuery } from '../types';
 import { Bed, Calendar, Users, MapPin, Sparkles, Star, Tag, Info, ShieldCheck, CheckCircle2, ArrowLeft, Check, Compass, CreditCard, Gift, Heart, HelpCircle, Map, Plus, Tv, Wifi, X, ShieldAlert, SlidersHorizontal } from 'lucide-react';
@@ -11,6 +11,9 @@ interface StaysModuleProps {
   connectedAccounts?: any;
   currentSelectedLocation?: string;
   preferenceMode: string;
+  redirectToLinkedAccounts?: () => void;
+  setAiInitialQuery?: (query: string) => void;
+  onBackRegister?: (handler: (() => boolean) | null) => void;
 }
 
 export default function StaysModule({ 
@@ -19,7 +22,10 @@ export default function StaysModule({
   setActiveTab,
   connectedAccounts,
   currentSelectedLocation,
-  preferenceMode
+  preferenceMode,
+  redirectToLinkedAccounts,
+  setAiInitialQuery,
+  onBackRegister
 }: StaysModuleProps) {
   const [destination, setDestination] = useState('Goa');
   const [recentSearches, setRecentSearches] = useState<string[]>(['Goa', 'Jaipur', 'Delhi']);
@@ -59,13 +65,42 @@ export default function StaysModule({
   const [guestPhone, setGuestPhone] = useState('+91 99882 10492');
 
   // Automatically fetch from profile details
-  React.useEffect(() => {
+  useEffect(() => {
     if (userProfile) {
       if (userProfile.name) setGuestName(userProfile.name);
       if (userProfile.email) setGuestEmail(userProfile.email);
       if (userProfile.phone) setGuestPhone(userProfile.phone);
     }
   }, [userProfile]);
+
+  // Register internal back handler
+  useEffect(() => {
+    if (onBackRegister) {
+      if (activeStep !== 'list') {
+        onBackRegister(() => {
+          if (activeStep === 'payment') {
+            setActiveStep('guest');
+            return true;
+          }
+          if (activeStep === 'guest') {
+            setActiveStep('detail');
+            return true;
+          }
+          if (activeStep === 'detail') {
+            setActiveStep('list');
+            setSelectedHotel(null);
+            return true;
+          }
+          return false;
+        });
+      } else {
+        onBackRegister(null);
+      }
+    }
+    return () => {
+      if (onBackRegister) onBackRegister(null);
+    };
+  }, [activeStep, onBackRegister]);
 
   const [specialRequests, setSpecialRequests] = useState('');
 
@@ -260,30 +295,62 @@ export default function StaysModule({
             </div>
           </div>
 
-          {showLinkBanner && (!connectedAccounts || (!connectedAccounts.agoda && !connectedAccounts.booking && !connectedAccounts.mmt)) && (
-            <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-indigo-900 font-medium font-sans">
+          {showLinkBanner && (!connectedAccounts || !connectedAccounts.agoda || !connectedAccounts.booking || !connectedAccounts.mmt) && (
+            <div 
+              onClick={() => { if (redirectToLinkedAccounts) { redirectToLinkedAccounts(); } else if (setActiveTab) { setActiveTab('account'); } }}
+              className="bg-indigo-50 hover:bg-indigo-100/70 border border-indigo-200 rounded-2xl p-3 flex items-center justify-between gap-3 text-xs text-indigo-900 font-medium font-sans cursor-pointer transition-all shadow-xs group"
+            >
               <div className="flex items-center space-x-2">
-                <span className="text-base shrink-0">💡</span>
-                <span>Link your Booking.com, Agoda, and MakeMyTrip accounts to sync Genius/Agoda VIP tiers, loyalty cashbacks, and special corporate room tariffs!</span>
+                <span className="text-base shrink-0 group-hover:scale-110 transition">💡</span>
+                <span>
+                  Link your <strong className="font-bold text-indigo-950">Agoda, Booking.com, and MakeMyTrip</strong> accounts to sync Genius/Agoda VIP tiers, loyalty cashbacks, and special corporate room tariffs!
+                </span>
               </div>
               <div className="flex items-center space-x-2 shrink-0">
+                <span className="bg-indigo-600 group-hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition">
+                  Link Now ➔
+                </span>
                 <button 
                   type="button" 
-                  onClick={() => { if (setActiveTab) setActiveTab('account'); }} 
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded-xl text-[10px] uppercase tracking-wider transition cursor-pointer"
-                >
-                  Link Account
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => setShowLinkBanner(false)} 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowLinkBanner(false);
+                  }} 
                   className="text-indigo-500 hover:text-indigo-700 text-xs font-bold px-1.5 py-1"
+                  title="Dismiss banner"
                 >
                   ✕
                 </button>
               </div>
             </div>
           )}
+
+          {/* AI Travel Planner CTA */}
+          <div className="bg-gradient-to-r from-amber-500/10 to-indigo-500/10 border border-amber-500/25 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3.5 shadow-xs">
+            <div className="space-y-1">
+              <div className="flex items-center space-x-1.5 text-indigo-950 font-bold text-xs uppercase tracking-wider">
+                <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" />
+                <span>Chalo AI Vacation Planner</span>
+              </div>
+              <p className="text-[11.5px] text-gray-600 font-medium">
+                Not sure which hotel to pick or how to organize your holiday? Let our smart AI Assistant ask you a few questions and design a custom, price-conscious route & stay itinerary!
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (setAiInitialQuery) {
+                  setAiInitialQuery("Plan a Trip with Chalo Smart Travel Planner 🚀");
+                }
+                if (setActiveTab) {
+                  setActiveTab('ai');
+                }
+              }}
+              className="bg-indigo-600 hover:bg-indigo-750 text-white font-extrabold px-4 py-2.5 rounded-xl text-[10.5px] uppercase tracking-wider transition shrink-0 shadow-xs cursor-pointer"
+            >
+              🚀 AI Trip Planner
+            </button>
+          </div>
 
           {/* Stay Booking Lookup form */}
           <form onSubmit={(e) => {
