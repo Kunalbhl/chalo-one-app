@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChaloWallet, WalletTransaction, ReferralState, UserProfile } from '../types';
 import { LEADERBOARD_WEEKLY, LEADERBOARD_MONTHLY, LEADERBOARD_ALLTIME } from '../data';
 import { Coins, Award, Users, Share2, QrCode, ArrowUpRight, HelpCircle, ArrowRightLeft, Gift, Zap, CheckCircle, AlertTriangle, CreditCard, Sparkles } from 'lucide-react';
+import { FirestoreService } from '../services/firestoreService';
 
 interface ReferralAndWalletProps {
   wallet: ChaloWallet;
@@ -57,22 +58,22 @@ export default function ReferralAndWallet({
     return 'Payments';
   };
 
-  // Calculate dynamic real referrals based on signed-up users with matching referredBy code
-  const getRealReferrals = () => {
-    try {
-      const stored = localStorage.getItem('chalo_all_users');
-      if (stored && userProfile) {
-        const parsed = JSON.parse(stored);
-        const myCode = (userProfile.referralCode || '').toLowerCase().trim();
-        if (myCode) {
-          return parsed.filter((u: any) => u.referredBy && u.referredBy.toLowerCase().trim() === myCode);
-        }
-      }
-    } catch (e) {}
-    return [];
-  };
+  const [realReferrals, setRealReferrals] = useState<any[]>([]);
 
-  const realReferrals = getRealReferrals();
+  useEffect(() => {
+    if (!userProfile?.id) return;
+    
+    // Subscribe to real-time referrals collection under referrals/{uid}/joined
+    const unsubscribe = FirestoreService.subscribeCollection<any>(
+      `referrals/${userProfile.id}/joined`,
+      [],
+      (items) => {
+        setRealReferrals(items);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [userProfile?.id]);
   const signupCount = realReferrals.length;
 
   // 2000 points base reward. If user has referred 5 or more members, they get 1000 extra bonus per registered user (total 3000 points per referral!)

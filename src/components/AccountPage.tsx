@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import HelpSupport from './HelpSupport';
 // @ts-ignore
 import appLogo from '../assets/images/logo.png';
@@ -12,8 +12,10 @@ import {
   ChaloWallet 
 } from '../types';
 import { FAQS } from '../data';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { updatePassword } from 'firebase/auth';
+import { FirestoreService } from '../services/firestoreService';
 import { 
   Settings, 
   Shield, 
@@ -100,6 +102,20 @@ interface AccountPageProps {
   activities?: any[];
   currentSelectedLocation?: string;
   setShowLocationSelectorModal?: (show: boolean) => void;
+
+  // NEW Phase-wise config props
+  featureToggles?: {
+    rides: boolean;
+    intercity: boolean;
+    food: boolean;
+    mart: boolean;
+    stays: boolean;
+    bills: boolean;
+    wallet: boolean;
+    referrals: boolean;
+    planner: boolean;
+  };
+  saveFeatureToggles?: (toggles: any) => Promise<void>;
 }
 
 export default function AccountPage({
@@ -124,7 +140,9 @@ export default function AccountPage({
   initialSection,
   activities = [],
   currentSelectedLocation,
-  setShowLocationSelectorModal
+  setShowLocationSelectorModal,
+  featureToggles,
+  saveFeatureToggles
 }: AccountPageProps) {
   // Navigation inside Account page
   const [activeSection, setActiveSection] = useState<
@@ -132,6 +150,27 @@ export default function AccountPage({
   >('main');
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  // Phase-wise Local Config toggles state
+  const [localFeatureToggles, setLocalFeatureToggles] = useState(() => {
+    return featureToggles || {
+      rides: true,
+      intercity: true,
+      food: true,
+      mart: true,
+      stays: true,
+      bills: true,
+      wallet: true,
+      referrals: true,
+      planner: true,
+    };
+  });
+
+  useEffect(() => {
+    if (featureToggles) {
+      setLocalFeatureToggles(featureToggles);
+    }
+  }, [featureToggles]);
 
   // Change Password States
   const [currentPassword, setCurrentPassword] = useState<string>('');
@@ -336,6 +375,8 @@ export default function AccountPage({
   const [backendSyncing, setBackendSyncing] = useState(false);
   const [backendSyncSuccess, setBackendSyncSuccess] = useState(false);
 
+  const [activeAdminTab, setActiveAdminTab] = useState<'overview' | 'features' | 'apis' | 'affiliates'>('overview');
+
   const [typedRedemptionPoints, setTypedRedemptionPoints] = useState<string>('');
 
   // Preferred platform selection states (one per category, remembered and synced)
@@ -516,34 +557,14 @@ export default function AccountPage({
     setProfileSaveSuccess(true);
     setTimeout(() => setProfileSaveSuccess(false), 2500);
 
-    // Save locally to fallback list
-    try {
-      const savedList = localStorage.getItem('chalo_all_users');
-      if (savedList) {
-        const parsedList = JSON.parse(savedList);
-        const updatedList = parsedList.map((u: any) => {
-          if (u.email.toLowerCase() === profileEmail.toLowerCase().trim()) {
-            return { ...u, ...updatedProfile };
-          }
-          return u;
-        });
-        localStorage.setItem('chalo_all_users', JSON.stringify(updatedList));
-      }
-    } catch (e) {
-      console.warn("Could not sync local profile update:", e);
-    }
-
     // Persist profile updates directly to Firebase database
-    if (db) {
-      try {
-        const userDocRef = doc(db, 'users', profileEmail.toLowerCase().trim());
-        await setDoc(userDocRef, {
-          profile: updatedProfile
-        }, { merge: true });
+    try {
+      if (userProfile?.id) {
+        await FirestoreService.setDocument('users', userProfile.id, updatedProfile);
         console.log("Updated profile details synced to Firebase Firestore.");
-      } catch (err) {
-        console.warn("Could not persist profile changes to Firebase Firestore:", err);
       }
+    } catch (err) {
+      console.warn("Could not persist profile changes to Firebase Firestore:", err);
     }
   };
 
@@ -744,7 +765,7 @@ export default function AccountPage({
           {/* LIST OPTIONS AS SECTIONS TO TAP */}
           <div className="bg-white rounded-3xl border border-gray-150 shadow-xs divide-y divide-gray-100 overflow-hidden">
             {[
-              ...((userProfile.email.toLowerCase() === 'kunalpareekusa@gmail.com' || userProfile.role === 'super_admin' || userProfile.role === 'affiliate_partner') ? [{
+              ...((userProfile.role === 'super_admin' || userProfile.role === 'affiliate_partner') ? [{
                 id: 'founder_affiliate',
                 title: userProfile.role === 'affiliate_partner' ? '🔌 Affiliate Partner Dashboard' : '👑 Founder Affiliate Program Suite',
                 desc: userProfile.role === 'affiliate_partner' ? 'Sync web booking parameters, get affiliate URLs, and track accrued referral fees' : 'Manage referral fee rates, affiliate links, and super admin analytics',
@@ -786,7 +807,13 @@ export default function AccountPage({
                 desc: 'Settle tickets and review super app help options',
                 badge: supportTickets.length + ' Tickets'
               }
-            ].map(row => (
+            ].filter(row => {
+              // Hide payments if wallet is disabled
+              if (row.id === 'payments' && localFeatureToggles.wallet === false) return false;
+              // Hide founder_affiliate for affiliate partners if referrals is disabled
+              if (row.id === 'founder_affiliate' && localFeatureToggles.referrals === false && userProfile.role !== 'super_admin') return false;
+              return true;
+            }).map(row => (
               <button
                 key={row.id}
                 type="button"
@@ -1289,46 +1316,20 @@ export default function AccountPage({
                     return;
                   }
 
-                  // Verify with current local user profile list
-                  const emailKey = userProfile.email.toLowerCase().trim();
-                  const storedList = localStorage.getItem('chalo_all_users');
-                  let localMatch: any = null;
-                  let parsedList: any[] = [];
-                  if (storedList) {
-                    parsedList = JSON.parse(storedList);
-                    localMatch = parsedList.find((u: any) => u.email.toLowerCase() === emailKey);
-                  }
-
-                  // If local match exists, confirm correct current password
-                  if (localMatch && localMatch.password && localMatch.password !== currentPassword) {
-                    alert("❌ Incorrect Current Password: The current password you entered does not match our records.");
+                  // Verify with Firebase Authentication session
+                  if (!auth.currentUser) {
+                    alert("❌ Session not found: Please sign in again.");
                     return;
                   }
 
-                  // Update local fallback users database list
-                  const updatedList = parsedList.map((u: any) => {
-                    if (u.email.toLowerCase() === emailKey) {
-                      return { ...u, password: newPassword };
-                    }
-                    return u;
-                  });
-                  localStorage.setItem('chalo_all_users', JSON.stringify(updatedList));
-
-                  // Persist update in Firebase Cloud database Firestore
-                  if (db) {
-                    try {
-                      const docRef = doc(db, 'users', emailKey);
-                      await setDoc(docRef, {
-                        password: newPassword
-                      }, { merge: true });
-                      console.log("Password updated successfully in Firebase Firestore.");
-                    } catch (err) {
-                      console.warn("Could not sync password update with Firebase Firestore:", err);
-                    }
+                  try {
+                    await updatePassword(auth.currentUser, newPassword);
+                    console.log("Password updated successfully in Firebase Auth.");
+                    alert("🎉 Success! Your password has been successfully updated via Secure Authentication.");
+                  } catch (err: any) {
+                    alert("❌ Password update failed: " + err.message);
                   }
 
-                  alert("🎉 Success! Your password has been successfully updated in the secure database. Use your new password to log in in future sessions.");
-                  
                   // Reset inputs
                   setCurrentPassword('');
                   setNewPassword('');
@@ -1638,46 +1639,20 @@ export default function AccountPage({
                   return;
                 }
 
-                // Verify with current local user profile list
-                const emailKey = userProfile.email.toLowerCase().trim();
-                const storedList = localStorage.getItem('chalo_all_users');
-                let localMatch: any = null;
-                let parsedList: any[] = [];
-                if (storedList) {
-                  parsedList = JSON.parse(storedList);
-                  localMatch = parsedList.find((u: any) => u.email.toLowerCase() === emailKey);
-                }
-
-                // If local match exists, confirm correct current password
-                if (localMatch && localMatch.password && localMatch.password !== currentPassword) {
-                  alert("❌ Incorrect Current Password: The current password you entered does not match our records.");
+                // Verify with Firebase Authentication session
+                if (!auth.currentUser) {
+                  alert("❌ Session not found: Please sign in again.");
                   return;
                 }
 
-                // Update local fallback users database list
-                const updatedList = parsedList.map((u: any) => {
-                  if (u.email.toLowerCase() === emailKey) {
-                    return { ...u, password: newPassword };
-                  }
-                  return u;
-                });
-                localStorage.setItem('chalo_all_users', JSON.stringify(updatedList));
-
-                // Persist update in Firebase Cloud database Firestore
-                if (db) {
-                  try {
-                    const docRef = doc(db, 'users', emailKey);
-                    await setDoc(docRef, {
-                      password: newPassword
-                    }, { merge: true });
-                    console.log("Password updated successfully in Firebase Firestore.");
-                  } catch (err) {
-                    console.warn("Could not sync password update with Firebase Firestore:", err);
-                  }
+                try {
+                  await updatePassword(auth.currentUser, newPassword);
+                  console.log("Password updated successfully in Firebase Auth.");
+                  alert("🎉 Success! Your password has been successfully updated via Secure Authentication.");
+                } catch (err: any) {
+                  alert("❌ Password update failed: " + err.message);
                 }
 
-                alert("🎉 Success! Your password has been successfully updated in the secure database. Use your new password to log in in future sessions.");
-                
                 // Reset inputs and return to main account view
                 setCurrentPassword('');
                 setNewPassword('');
@@ -2570,10 +2545,272 @@ export default function AccountPage({
               </div>
 
               {/* SECTION A: SUPER ADMIN DASHBOARD */}
-              {(userProfile.role === 'super_admin' || userProfile.email.toLowerCase() === 'kunalpareekusa@gmail.com') && (
+              {userProfile.role === 'super_admin' && (
                 <div className="space-y-6">
 
-                  {/* COMMISSION JUNCTION & BOOKING.COM INTEGRATION PANEL */}
+                  {/* Category Selection Tabs / Control Panel Navigation */}
+                  <div className="bg-slate-900 border border-slate-800 p-2 rounded-3xl flex flex-wrap gap-2 shadow-inner">
+                    <button
+                      type="button"
+                      onClick={() => setActiveAdminTab('overview')}
+                      className={`flex-1 min-w-[125px] py-2.5 px-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer ${
+                        activeAdminTab === 'overview'
+                          ? 'bg-amber-400 text-slate-950 shadow-lg font-bold scale-[1.02]'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                      }`}
+                    >
+                      <span>📊</span> Overview Desk
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveAdminTab('features')}
+                      className={`flex-1 min-w-[125px] py-2.5 px-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer ${
+                        activeAdminTab === 'features'
+                          ? 'bg-amber-400 text-slate-950 shadow-lg font-bold scale-[1.02]'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                      }`}
+                    >
+                      <span>🛡️</span> Release Features
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveAdminTab('apis')}
+                      className={`flex-1 min-w-[125px] py-2.5 px-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer ${
+                        activeAdminTab === 'apis'
+                          ? 'bg-amber-400 text-slate-950 shadow-lg font-bold scale-[1.02]'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                      }`}
+                    >
+                      <span>🔌</span> API Control
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveAdminTab('affiliates')}
+                      className={`flex-1 min-w-[125px] py-2.5 px-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer ${
+                        activeAdminTab === 'affiliates'
+                          ? 'bg-amber-400 text-slate-950 shadow-lg font-bold scale-[1.02]'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                      }`}
+                    >
+                      <span>🤝</span> Affiliates Desk
+                    </button>
+                  </div>
+
+                  {/* CATEGORY 1: OVERVIEW DASHBOARD */}
+                  {activeAdminTab === 'overview' && (
+                    <div className="space-y-6 animate-fadeIn">
+                      
+                      {/* Top Welcome Title */}
+                      <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-extrabold text-white flex items-center gap-2 uppercase tracking-wide font-display">
+                            👑 CHALO ONE SUPER ADMIN CONTROL PANEL
+                          </h3>
+                          <p className="text-[11px] text-slate-400 mt-0.5">Welcome, Kunal. Monitor phase-wise features, web scraping endpoints and commission revenues.</p>
+                        </div>
+                        <span className="bg-amber-400/10 border border-amber-400/20 text-amber-400 text-[10px] font-mono font-bold px-2.5 py-1 rounded-lg">
+                          SUPER_ADMIN MODE
+                        </span>
+                      </div>
+
+                      {/* Stat Bento Grid */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="bg-slate-850 p-4 rounded-2xl border border-slate-800 space-y-1">
+                          <span className="text-[9px] text-slate-500 uppercase font-mono block">Feature Status</span>
+                          <span className="text-base font-black text-white block">Phase-wise Toggles</span>
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#permissions</span>
+                            <span className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#releases</span>
+                          </div>
+                        </div>
+                        <div className="bg-slate-850 p-4 rounded-2xl border border-slate-800 space-y-1">
+                          <span className="text-[9px] text-slate-500 uppercase font-mono block">Linked Scraping APIs</span>
+                          <span className="text-base font-black text-white block">{coreApisList.length} Connected</span>
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            <span className="bg-amber-500/10 text-amber-400 border border-amber-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#connections</span>
+                            <span className="bg-blue-500/10 text-blue-400 border border-blue-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#endpoints</span>
+                          </div>
+                        </div>
+                        <div className="bg-slate-850 p-4 rounded-2xl border border-slate-800 space-y-1">
+                          <span className="text-[9px] text-slate-500 uppercase font-mono block">Referral Commission</span>
+                          <span className="text-base font-black text-white block">{globalCommissionRate}% Live</span>
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            <span className="bg-rose-500/10 text-rose-400 border border-rose-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#referrals</span>
+                            <span className="bg-yellow-500/10 text-yellow-400 border border-yellow-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#payouts</span>
+                          </div>
+                        </div>
+                        <div className="bg-slate-850 p-4 rounded-2xl border border-slate-800 space-y-1">
+                          <span className="text-[9px] text-slate-500 uppercase font-mono block">Affiliate Platforms</span>
+                          <span className="text-base font-black text-white block">{affiliatesList.length} Active</span>
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            <span className="bg-purple-500/10 text-purple-400 border border-purple-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#partners</span>
+                            <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#revenue</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Detailed Category-wise Directory & Index */}
+                      <div className="bg-slate-900 p-5 rounded-3xl border border-slate-800 space-y-4">
+                        <div>
+                          <h4 className="text-xs font-black text-white uppercase tracking-wider font-display">
+                            📁 PLATFORM CATEGORIES DIRECTORY & MODULE REGISTRATION INDEX
+                          </h4>
+                          <p className="text-[10.5px] text-slate-400 mt-0.5">
+                            Access and configure each module in its dedicated sub-page console. Each module represents an active database state inside the Chalo system.
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          
+                          {/* Module Card 1 */}
+                          <div className="bg-slate-850/60 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between space-y-3.5 hover:border-slate-700 transition">
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wide font-mono">Category: Platform Releases</span>
+                                <span className="text-[8px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-1.5 py-0.5 rounded font-mono">ACTIVE</span>
+                              </div>
+                              <h5 className="text-[11.5px] font-extrabold text-white uppercase tracking-tight">System Phase-wise Feature Permissions</h5>
+                              <p className="text-[10.5px] text-slate-400 leading-normal">
+                                Manage release toggles globally for local cabs, food delivery, stays, smart planner and payment billing programs.
+                              </p>
+                              <div className="flex flex-wrap gap-1 pt-1">
+                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#permissions</span>
+                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#releases</span>
+                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#system_toggles</span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setActiveAdminTab('features')}
+                              className="w-full py-2 bg-slate-900 hover:bg-slate-950 text-white font-black text-[9.5px] uppercase tracking-wider rounded-xl transition cursor-pointer"
+                            >
+                              Configure Release Toggles ➔
+                            </button>
+                          </div>
+
+                          {/* Module Card 2 */}
+                          <div className="bg-slate-850/60 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between space-y-3.5 hover:border-slate-700 transition">
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wide font-mono">Category: API & Webhooks</span>
+                                <span className="text-[8px] bg-blue-500/10 text-blue-400 border border-blue-500/25 px-1.5 py-0.5 rounded font-mono">{coreApisList.length} Connected</span>
+                              </div>
+                              <h5 className="text-[11.5px] font-extrabold text-white uppercase tracking-tight">Comparative Scraping API Center</h5>
+                              <p className="text-[10.5px] text-slate-400 leading-normal">
+                                Configure live scraping endpoints, client-authenticated secret keys, and database request synchronization models.
+                              </p>
+                              <div className="flex flex-wrap gap-1 pt-1">
+                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#endpoints</span>
+                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#connections</span>
+                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#auth_credentials</span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setActiveAdminTab('apis')}
+                              className="w-full py-2 bg-slate-900 hover:bg-slate-950 text-white font-black text-[9.5px] uppercase tracking-wider rounded-xl transition cursor-pointer"
+                            >
+                              Configure API Center ➔
+                            </button>
+                          </div>
+
+                          {/* Module Card 3 */}
+                          <div className="bg-slate-850/60 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between space-y-3.5 hover:border-slate-700 transition">
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wide font-mono">Category: API & Webhooks</span>
+                                <span className="text-[8px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-1.5 py-0.5 rounded font-mono">SMTP READY</span>
+                              </div>
+                              <h5 className="text-[11.5px] font-extrabold text-white uppercase tracking-tight">Live Email SMTP Dispatch Webhooks</h5>
+                              <p className="text-[10.5px] text-slate-400 leading-normal">
+                                Dispatch manual SMTP test signals, test transactional receipts, verify webhook authentication tokens and live logs.
+                              </p>
+                              <div className="flex flex-wrap gap-1 pt-1">
+                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#smtp_webhooks</span>
+                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#dispatch_testing</span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setActiveAdminTab('apis')}
+                              className="w-full py-2 bg-slate-900 hover:bg-slate-950 text-white font-black text-[9.5px] uppercase tracking-wider rounded-xl transition cursor-pointer"
+                            >
+                              Dispatch SMTP Signals ➔
+                            </button>
+                          </div>
+
+                          {/* Module Card 4 */}
+                          <div className="bg-slate-850/60 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between space-y-3.5 hover:border-slate-700 transition">
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wide font-mono">Category: Affiliate Programs</span>
+                                <span className="text-[8px] bg-purple-500/10 text-purple-400 border border-purple-500/25 px-1.5 py-0.5 rounded font-mono">WEBHOOK ACTIVE</span>
+                              </div>
+                              <h5 className="text-[11.5px] font-extrabold text-white uppercase tracking-tight">Booking.com Affiliate Suite</h5>
+                              <p className="text-[10.5px] text-slate-400 leading-normal">
+                                Monitor real-time Commission Junction (CJ) publisher sync, track checkout conversions, and verify linked guests.
+                              </p>
+                              <div className="flex flex-wrap gap-1 pt-1">
+                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#commissions</span>
+                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#booking_conversions</span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setActiveAdminTab('affiliates')}
+                              className="w-full py-2 bg-slate-900 hover:bg-slate-950 text-white font-black text-[9.5px] uppercase tracking-wider rounded-xl transition cursor-pointer"
+                            >
+                              Open Booking Suite ➔
+                            </button>
+                          </div>
+
+                          {/* Module Card 5 */}
+                          <div className="bg-slate-850/60 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between space-y-3.5 hover:border-slate-700 transition col-span-1 md:col-span-2">
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wide font-mono">Category: Affiliate Programs</span>
+                                <span className="text-[8px] bg-amber-500/10 text-amber-400 border border-amber-500/25 px-1.5 py-0.5 rounded font-mono">{affiliatesList.length} Partners</span>
+                              </div>
+                              <h5 className="text-[11.5px] font-extrabold text-white uppercase tracking-tight">Active Affiliate Partners Directory & Conversions</h5>
+                              <p className="text-[10.5px] text-slate-400 leading-normal">
+                                Register and provision external partner domains, track click ratios, adjust payout parameters and monitor live conversions.
+                              </p>
+                              <div className="flex flex-wrap gap-1 pt-1">
+                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#partners</span>
+                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#revenue_share</span>
+                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#referrals</span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setActiveAdminTab('affiliates')}
+                              className="w-full py-2 bg-slate-900 hover:bg-slate-950 text-white font-black text-[9.5px] uppercase tracking-wider rounded-xl transition cursor-pointer"
+                            >
+                              Open Partner Directory ➔
+                            </button>
+                          </div>
+
+                        </div>
+                      </div>
+
+                    </div>
+                  )}
+
+                  {/* CATEGORY 4: AFFILIATES & REVENUES PART A */}
+                  {activeAdminTab === 'affiliates' && (
+                    <div className="space-y-6 animate-fadeIn">
+                      <div className="flex items-center gap-2 bg-slate-900 px-4 py-2.5 rounded-2xl border border-slate-800 text-[10.5px] font-mono">
+                        <span className="text-slate-500 font-bold uppercase">Tags:</span>
+                        <span className="text-purple-400 font-bold">#commissions</span>
+                        <span className="text-emerald-400 font-bold">#payouts</span>
+                        <span className="text-rose-400 font-bold">#partners</span>
+                        <span className="text-yellow-400 font-bold">#booking_conversions</span>
+                        <span className="ml-auto text-[9px] bg-purple-500/15 text-purple-400 border border-purple-500/20 px-2 py-0.5 rounded uppercase font-black tracking-widest">
+                          Affiliate Desk
+                        </span>
+                      </div>
+                  
+                      {/* COMMISSION JUNCTION & BOOKING.COM INTEGRATION PANEL */}
                   <div className="bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 p-6 rounded-3xl border border-amber-500/20 shadow-xl space-y-6">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
                       <div className="flex items-center space-x-3">
@@ -2722,6 +2959,24 @@ export default function AccountPage({
                       </div>
                     </div>
                   </div>
+                  </div>
+                  )}
+
+                  {/* CATEGORY 3: API & WEBHOOK INTEGRATIONS */}
+                  {activeAdminTab === 'apis' && (
+                    <div className="space-y-6 animate-fadeIn">
+                      
+                      {/* Tags Bar */}
+                      <div className="flex items-center gap-2 bg-slate-900 px-4 py-2.5 rounded-2xl border border-slate-800 text-[10.5px] font-mono">
+                        <span className="text-slate-500 font-bold uppercase">Tags:</span>
+                        <span className="text-blue-400 font-bold">#endpoints</span>
+                        <span className="text-amber-400 font-bold">#connections</span>
+                        <span className="text-teal-400 font-bold">#smtp_webhooks</span>
+                        <span className="text-rose-400 font-bold">#auth_credentials</span>
+                        <span className="ml-auto text-[9px] bg-blue-500/15 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded uppercase font-black tracking-widest">
+                          Web Scrapers
+                        </span>
+                      </div>
 
                   {/* MASTER API ENDPOINTS DEFINITIONS */}
                   <div className="bg-slate-850 p-5 rounded-2xl border border-slate-800 space-y-5">
@@ -2937,6 +3192,12 @@ export default function AccountPage({
                       </div>
                     )}
                   </div>
+                  </div>
+                  )}
+
+                  {/* CATEGORY 4: AFFILIATES & REVENUES PART B */}
+                  {activeAdminTab === 'affiliates' && (
+                    <div className="space-y-6 animate-fadeIn">
 
                   {/* ACTIVE PARTNERS PLATFORMS DIRECTORY */}
                   <div className="bg-slate-850 p-5 rounded-2xl border border-slate-800 space-y-4">
@@ -3156,8 +3417,14 @@ export default function AccountPage({
                       })}
                     </div>
                   </div>
+                  </div>
+                  )}
 
-                  {/* 📧 LIVE EMAIL DISPATCH TESTING PANEL */}
+                  {/* CATEGORY 3: API & WEBHOOK INTEGRATIONS PART B */}
+                  {activeAdminTab === 'apis' && (
+                    <div className="space-y-6 animate-fadeIn">
+
+                  {/* 📧 LIVE EMAIL SMTP DISPATCH TESTING PANEL */}
                   <div className="bg-slate-850 p-5 rounded-2xl border border-slate-800 space-y-4">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                       <div>
@@ -3235,7 +3502,7 @@ export default function AccountPage({
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({
-                                recipient: recVal || 'kunalpareekusa@gmail.com',
+                                recipient: recVal || userProfile.email || 'test@example.com',
                                 subject: '👑 Chalo One Founder Affiliate Alert',
                                 body: bodyVal,
                                 actionType: actVal,
@@ -3296,6 +3563,195 @@ export default function AccountPage({
                       )}
                     </div>
                   </div>
+                  </div>
+                  )}
+
+                  {/* CATEGORY 2: SYSTEM PHASE-WISE FEATURE PERMISSIONS */}
+                  {activeAdminTab === 'features' && (
+                    <div className="space-y-6 animate-fadeIn">
+                      
+                      {/* Tags Bar */}
+                      <div className="flex items-center gap-2 bg-slate-900 px-4 py-2.5 rounded-2xl border border-slate-800 text-[10.5px] font-mono">
+                        <span className="text-slate-500 font-bold uppercase">Tags:</span>
+                        <span className="text-emerald-400 font-bold">#permissions</span>
+                        <span className="text-indigo-400 font-bold">#releases</span>
+                        <span className="text-pink-400 font-bold">#system_toggles</span>
+                        <span className="text-sky-400 font-bold">#phase_control</span>
+                        <span className="ml-auto text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded uppercase font-black tracking-widest">
+                          Releases
+                        </span>
+                      </div>
+
+                  {/* NEW: SYSTEM PHASE-WISE FEATURE MANAGEMENT PANEL */}
+                  <div className="bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 p-6 rounded-3xl border border-amber-500/20 shadow-xl space-y-6 mt-6">
+                    <div className="border-b border-slate-800 pb-4">
+                      <h4 className="text-sm font-display font-black text-white uppercase tracking-wider flex items-center gap-2">
+                        <span>🛡️</span> System Phase-wise Feature & Permissions Manager
+                      </h4>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Control and release application features in a structured, phase-wise manner for public users. Disabled features will be hidden globally, and the AI Assistant will state they are coming soon.
+                      </p>
+                    </div>
+
+                    {/* Phase 1 */}
+                    <div className="space-y-3">
+                      <div className="text-[10px] font-extrabold text-amber-400 uppercase tracking-widest pl-1 font-mono">
+                        Phase 1: Core Essentials & Wallet
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                          <div>
+                            <h5 className="text-xs font-bold text-white">🚕 Local Cabs</h5>
+                            <p className="text-[10px] text-slate-400">Uber, Ola, Rapido comparison</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={localFeatureToggles.rides !== false}
+                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, rides: e.target.checked })}
+                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
+                          />
+                        </div>
+                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                          <div>
+                            <h5 className="text-xs font-bold text-white">🍔 Food Delivery</h5>
+                            <p className="text-[10px] text-slate-400">Zomato & Swiggy deals</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={localFeatureToggles.food !== false}
+                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, food: e.target.checked })}
+                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
+                          />
+                        </div>
+                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                          <div>
+                            <h5 className="text-xs font-bold text-white">💰 Wallet Program</h5>
+                            <p className="text-[10px] text-slate-400">Coins, balances, payment logs</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={localFeatureToggles.wallet !== false}
+                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, wallet: e.target.checked })}
+                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Phase 2 */}
+                    <div className="space-y-3">
+                      <div className="text-[10px] font-extrabold text-cyan-400 uppercase tracking-widest pl-1 font-mono">
+                        Phase 2: Travel Growth & Referrals
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                          <div>
+                            <h5 className="text-xs font-bold text-white">🛒 Fast Grocery</h5>
+                            <p className="text-[10px] text-slate-400">Blinkit, Zepto, Instamart</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={localFeatureToggles.mart !== false}
+                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, mart: e.target.checked })}
+                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
+                          />
+                        </div>
+                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                          <div>
+                            <h5 className="text-xs font-bold text-white">🚌 Outstation Cabs</h5>
+                            <p className="text-[10px] text-slate-400">Intercity highway routes</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={localFeatureToggles.intercity !== false}
+                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, intercity: e.target.checked })}
+                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
+                          />
+                        </div>
+                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                          <div>
+                            <h5 className="text-xs font-bold text-white">🎁 Referral Program</h5>
+                            <p className="text-[10px] text-slate-400">Referral reward codes & desk</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={localFeatureToggles.referrals !== false}
+                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, referrals: e.target.checked })}
+                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Phase 3 */}
+                    <div className="space-y-3">
+                      <div className="text-[10px] font-extrabold text-purple-400 uppercase tracking-widest pl-1 font-mono">
+                        Phase 3: Premium Ecosystem & AI Planner
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                          <div>
+                            <h5 className="text-xs font-bold text-white">🏨 Book Stays</h5>
+                            <p className="text-[10px] text-slate-400">Agoda & Booking.com tariffs</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={localFeatureToggles.stays !== false}
+                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, stays: e.target.checked })}
+                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
+                          />
+                        </div>
+                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                          <div>
+                            <h5 className="text-xs font-bold text-white">⚡ Utility Bills</h5>
+                            <p className="text-[10px] text-slate-400">Electricity, Broadband, Water</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={localFeatureToggles.bills !== false}
+                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, bills: e.target.checked })}
+                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
+                          />
+                        </div>
+                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                          <div>
+                            <h5 className="text-xs font-bold text-white">🗺️ Smart AI Planner</h5>
+                            <p className="text-[10px] text-slate-400">Interactive chat itineraries</p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={localFeatureToggles.planner !== false}
+                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, planner: e.target.checked })}
+                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Apply Configuration Button */}
+                    <div className="pt-4 border-t border-slate-800 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (saveFeatureToggles) {
+                            try {
+                              await saveFeatureToggles(localFeatureToggles);
+                              alert("✓ Success: Global Application Feature Permissions updated successfully in Firestore Database.");
+                            } catch (err: any) {
+                              alert("❌ Error: Failed to save changes in Firestore database. " + err.message);
+                            }
+                          } else {
+                            alert("✓ Info: Feature toggles saved locally.");
+                          }
+                        }}
+                        className="w-full sm:w-auto px-6 py-3 bg-amber-400 hover:bg-amber-500 text-slate-950 font-black uppercase rounded-2xl text-[10.5px] tracking-wider transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <span>💾</span> Apply Phase-wise Feature Permissions Globally
+                      </button>
+                    </div>
+                  </div>
+                  </div>
+                  )}
 
                 </div>
               )}

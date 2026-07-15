@@ -1,106 +1,157 @@
 {
   "entities": {
-    "Affiliate": {
-      "title": "Affiliate Partner Profile",
-      "description": "Details of an onboarded affiliate partner platform or influencer",
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile document containing general details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The unique user UID" },
+        "name": { "type": "string", "maxLength": 100, "description": "Display name of the user" },
+        "phone": { "type": "string", "maxLength": 20, "description": "Mobile number" },
+        "email": { "type": "string", "maxLength": 100, "description": "Primary email address" },
+        "dob": { "type": "string", "maxLength": 20, "description": "Date of birth" },
+        "gender": { "type": "string", "maxLength": 20, "description": "Gender identity" },
+        "referralCode": { "type": "string", "maxLength": 50, "description": "Unique user referral code" },
+        "referredBy": { "type": "string", "maxLength": 50, "description": "Referral code of the user who invited this user" },
+        "avatarUrl": { "type": "string", "maxLength": 500, "description": "Download URL of the profile avatar" },
+        "role": { "type": "string", "enum": ["super_admin", "affiliate_partner", "user"] }
+      },
+      "required": ["id", "name", "email", "referralCode"]
+    },
+    "Wallet": {
+      "title": "ChaloWallet",
+      "description": "User's digital wallet balances and transaction logs",
+      "type": "object",
+      "properties": {
+        "points": { "type": "number", "description": "Loyalty points balance" },
+        "balance": { "type": "number", "description": "Cash wallet balance in INR" },
+        "history": { "type": "array", "description": "Array of transaction objects" }
+      },
+      "required": ["points", "balance"]
+    },
+    "Referral": {
+      "title": "ReferralState",
+      "description": "Referral program state and signups tracker",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "maxLength": 50, "description": "The user referral code" },
+        "pointsEarned": { "type": "number", "description": "Total points earned from referrals" },
+        "signupsCount": { "type": "number", "description": "Total successful signups driven" }
+      },
+      "required": ["code", "pointsEarned", "signupsCount"]
+    },
+    "AppPreferences": {
+      "title": "AppPreferences",
+      "description": "User application preferences and security settings",
+      "type": "object",
+      "properties": {
+        "food": { "type": "array", "description": "Preferred food delivery platforms" },
+        "mart": { "type": "array", "description": "Preferred quick commerce platforms" },
+        "rides": { "type": "array", "description": "Preferred ride platforms" },
+        "stays": { "type": "array", "description": "Preferred stay booking platforms" },
+        "preferenceMode": { "type": "string", "enum": ["cheapest", "fastest", "rated", "favorites", "ai"] },
+        "defaultFoodType": { "type": "string", "enum": ["Veg", "Non-Veg", "Eggetarian", "Doesn't Matter"] },
+        "biometricsEnabled": { "type": "boolean" },
+        "biometricMode": { "type": "string", "enum": ["fingerprint", "faceid"] },
+        "txBiometricsEnabled": { "type": "boolean" },
+        "securityPin": { "type": "string", "maxLength": 10, "description": "Secured PIN" }
+      },
+      "required": ["preferenceMode"]
+    },
+    "Ride": {
+      "title": "Ride",
+      "description": "Details of current or past ride bookings",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "name": { "type": "string" },
-        "email": { "type": "string" },
-        "companyName": { "type": "string" },
-        "commissionRate": { "type": "number" },
-        "clicks": { "type": "number" },
-        "conversions": { "type": "number" },
-        "revenue": { "type": "number" },
+        "platform": { "type": "string" },
+        "vehicleType": { "type": "string" },
+        "pickup": { "type": "string" },
+        "destination": { "type": "string" },
+        "eta": { "type": "number" },
+        "price": { "type": "number" },
         "status": { "type": "string" },
-        "apiConfigured": { "type": "boolean" },
-        "webhookUrl": { "type": "string" },
-        "apiToken": { "type": "string" },
-        "domain": { "type": "string" },
+        "driverName": { "type": "string" },
+        "driverPhone": { "type": "string" },
+        "vehicleNumber": { "type": "string" },
+        "otp": { "type": "string" },
         "createdAt": { "type": "string" }
-      },
-      "required": ["id", "name", "email", "status"]
+      }
     },
-    "ClickLog": {
-      "title": "Affiliate Click Event Log",
-      "description": "Live, original record of high-fidelity redirect events from partner sites",
+    "Booking": {
+      "title": "Booking",
+      "description": "Details of any other food/stay/mart/intercity booking or order",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "affiliateId": { "type": "string" },
-        "timestamp": { "type": "string" },
-        "sourceUrl": { "type": "string" },
-        "campaignName": { "type": "string" },
-        "ipAddress": { "type": "string" }
-      },
-      "required": ["id", "affiliateId", "timestamp"]
-    },
-    "PayoutRecord": {
-      "title": "Commission Payout History",
-      "description": "An audited payout clearing entry for affiliate partners",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "affiliateId": { "type": "string" },
+        "category": { "type": "string", "enum": ["rides", "food", "mart", "stays", "intercity"] },
+        "platform": { "type": "string" },
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
         "amount": { "type": "number" },
         "status": { "type": "string" },
-        "clearedAt": { "type": "string" },
-        "bankReference": { "type": "string" }
-      },
-      "required": ["id", "affiliateId", "amount", "status"]
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "paymentMethod": { "type": "string" }
+      }
     },
-    "SystemConfig": {
-      "title": "Super Admin Global Config",
-      "description": "System-wide parameters managed by Super Admin Kunal",
+    "Notification": {
+      "title": "Notification",
+      "description": "User notifications document",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "unreadCount": { "type": "number" },
+        "list": { "type": "array" }
+      }
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Support tickets raised by users",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "defaultCommissionRate": { "type": "number" },
-        "webhookApiUrl": { "type": "string" },
-        "smtpApiToken": { "type": "string" },
-        "updatedBy": { "type": "string" },
-        "updatedAt": { "type": "string" }
-      },
-      "required": ["id"]
-    },
-    "User": {
-      "title": "User Account Profile",
-      "description": "Secure record of user details, wallet points, preferences and secure password",
-      "type": "object",
-      "properties": {
-        "profile": { "type": "object" },
-        "wallet": { "type": "object" },
-        "preferences": { "type": "object" },
-        "addresses": { "type": "array" },
-        "securityAuditLogs": { "type": "array" },
-        "password": { "type": "string" },
-        "databaseSecret": { "type": "string" },
-        "lastSyncedAt": { "type": "string" }
-      },
-      "required": ["password"]
+        "subject": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "messages": { "type": "array" }
+      }
     }
   },
   "firestore": {
     "/users/{userId}": {
-      "schema": "User",
-      "description": "Registered consumer accounts and credentials"
+      "schema": "UserProfile",
+      "description": "Public and private details of users"
     },
-    "/affiliates/{affiliateId}": {
-      "schema": "Affiliate",
-      "description": "Registered and authorized affiliate profiles"
+    "/wallets/{userId}": {
+      "schema": "Wallet",
+      "description": "Digital wallet balance and historical credit logs"
     },
-    "/clicks_log/{clickId}": {
-      "schema": "ClickLog",
-      "description": "Sovereign platform audit log for referral routing"
+    "/referrals/{userId}": {
+      "schema": "Referral",
+      "description": "Affiliate and direct referral earnings tracking"
     },
-    "/payouts/{payoutId}": {
-      "schema": "PayoutRecord",
-      "description": "Cleared commission and billing invoices"
+    "/preferences/{userId}": {
+      "schema": "AppPreferences",
+      "description": "Aggregator customization settings"
     },
-    "/system_config/{configId}": {
-      "schema": "SystemConfig",
-      "description": "Global developer environment overrides"
+    "/rides/{rideId}": {
+      "schema": "Ride",
+      "description": "Active or past ride records"
+    },
+    "/bookings/{bookingId}": {
+      "schema": "Booking",
+      "description": "User orders, hotel bookings, quick commerce baskets, or intercity rides"
+    },
+    "/notifications/{userId}": {
+      "schema": "Notification",
+      "description": "Real-time user alerts and notification centers"
+    },
+    "/supportTickets/{ticketId}": {
+      "schema": "SupportTicket",
+      "description": "Customer support threads"
     }
   }
 }

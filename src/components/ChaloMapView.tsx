@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { APIProvider, Map, Marker, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
-import { MapPin, Search, Navigation, Compass, Sparkles, Star, CheckCircle, Info } from 'lucide-react';
+import { MapPin, Search, Navigation, Compass, Sparkles, Star, CheckCircle, Info, Leaf, Award } from 'lucide-react';
 
 // Indian City Landmarks Database for Simulated Autocomplete/Keyword lookup when no key is entered
 const LANDMARKS_DB = [
@@ -34,11 +34,13 @@ interface ChaloMapViewProps {
   tripLiveStatus?: string;
 }
 
-const API_KEY = 'AIzaSyDT-9rRHZes_zgKEMGFeup_LNeXjWqhf5I';
+import firebaseConfig from '../../firebase-applet-config.json';
+import { getAppCheckToken } from '../firebase';
+const API_KEY = firebaseConfig.apiKey || 'AIzaSyCycCOkBHlCiXCvcxtO-sAuj-DmCXVmCqQ';
 
 export default function ChaloMapView(props: ChaloMapViewProps) {
   return (
-    <APIProvider apiKey={API_KEY} version="weekly">
+    <APIProvider apiKey={API_KEY} version="weekly" fetchAppCheckToken={getAppCheckToken}>
       <ChaloMapViewInner {...props} />
     </APIProvider>
   );
@@ -65,6 +67,20 @@ function ChaloMapViewInner({
   const [mapType, setMapType] = useState<'roadmap' | 'satellite'>('roadmap');
 
   const [cabProgress, setCabProgress] = useState(0.1);
+  const [showStatsOverlay, setShowStatsOverlay] = useState(true);
+
+  // Helper function to calculate distance between coordinates
+  function getHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371; // Radius of the earth in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2); 
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    return Number((R * c).toFixed(1));
+  }
 
   // Monitor live tracking status and progress
   useEffect(() => {
@@ -383,6 +399,16 @@ function ChaloMapViewInner({
     );
   };
 
+  // Distance and fuel savings calculations
+  const hasRoute = pickupCoords && destCoords;
+  const totalDistance = hasRoute 
+    ? getHaversineDistance(pickupCoords.lat, pickupCoords.lng, destCoords.lat, destCoords.lng)
+    : 12.8; // Fallback distance in km
+  
+  const distanceCovered = Number((totalDistance * cabProgress).toFixed(1));
+  const fuelSavings = Number((distanceCovered * 0.08).toFixed(2)); // 0.08L of fuel saved per km
+  const co2Reduction = Number((fuelSavings * 2.31).toFixed(2)); // 2.31kg of CO2 reduced per liter of fuel saved
+
   return (
     <div className="w-full space-y-2 text-slate-850">
       <div className="flex items-center justify-between">
@@ -598,6 +624,90 @@ function ChaloMapViewInner({
               <span>Map scale: Drag Pin to Move</span>
             </div>
           </div>
+
+          {/* Summary Stats Overlay */}
+          {showStatsOverlay && (
+            <div className="absolute bottom-2.5 right-2.5 z-20 bg-slate-900/95 text-white p-3 rounded-2xl border border-slate-700/80 w-[240px] shadow-lg backdrop-blur-xs space-y-2 font-sans transition-all duration-300">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                <div className="flex items-center space-x-1.5">
+                  <Leaf className="w-3.5 h-3.5 text-emerald-400 animate-pulse shrink-0" />
+                  <span className="text-[10px] uppercase font-mono tracking-wider font-extrabold text-emerald-400">
+                    Eco-Impact Stats
+                  </span>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => setShowStatsOverlay(false)}
+                  className="text-slate-400 hover:text-white text-[9px] font-mono leading-none font-bold cursor-pointer"
+                >
+                  Hide
+                </button>
+              </div>
+
+              {isTrackingMode ? (
+                <div className="space-y-1.5">
+                  <div className="text-[9px] font-bold text-slate-300">
+                    Active Ride Tracking:
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5 text-center">
+                    <div className="bg-slate-800/80 p-1.5 rounded-lg border border-slate-700/40">
+                      <div className="text-[8px] text-slate-400 font-medium">Distance Covered</div>
+                      <div className="text-[11px] font-mono font-bold text-amber-400">{distanceCovered} / {totalDistance} km</div>
+                    </div>
+                    <div className="bg-slate-800/80 p-1.5 rounded-lg border border-slate-700/40">
+                      <div className="text-[8px] text-slate-400 font-medium">Fuel Saved</div>
+                      <div className="text-[11px] font-mono font-bold text-emerald-400">{fuelSavings} L</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-[8px] text-slate-400 bg-slate-800/40 p-1 rounded-md font-mono">
+                    <span>Est. CO₂ Reduced:</span>
+                    <span className="text-emerald-400 font-bold">{co2Reduction} kg</span>
+                  </div>
+                </div>
+              ) : isRealtimeRadar ? (
+                <div className="space-y-1.5">
+                  <div className="text-[9px] font-bold text-slate-300">
+                    Nearby Radar Activity:
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5 text-center">
+                    <div className="bg-slate-800/80 p-1.5 rounded-lg border border-slate-700/40">
+                      <div className="text-[8px] text-slate-400 font-medium">Radar Cabs</div>
+                      <div className="text-[11px] font-mono font-bold text-amber-400">{radarCabs.length} Active</div>
+                    </div>
+                    <div className="bg-slate-800/80 p-1.5 rounded-lg border border-slate-700/40">
+                      <div className="text-[8px] text-slate-400 font-medium">Estimated Savings</div>
+                      <div className="text-[11px] font-mono font-bold text-emerald-400">1.84 L</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-[8px] text-slate-400 bg-slate-800/40 p-1 rounded-md font-mono">
+                    <span>CO₂ Reduced:</span>
+                    <span className="text-emerald-400 font-bold">4.25 kg</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1 text-center py-0.5">
+                  <p className="text-[9px] text-slate-300">
+                    Start a ride or enable radar to track active distance & estimated fuel savings!
+                  </p>
+                  <div className="text-[9px] font-mono text-emerald-400 font-black flex items-center justify-center space-x-1 mt-1">
+                    <Award className="w-3 h-3 text-amber-400" />
+                    <span>Avg Chalo Saver: 4.2L/week</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!showStatsOverlay && (
+            <button
+              type="button"
+              onClick={() => setShowStatsOverlay(true)}
+              className="absolute bottom-2.5 right-2.5 z-20 bg-slate-900/90 text-white px-2 py-1.5 rounded-xl border border-slate-700/80 text-[9px] font-mono font-bold uppercase tracking-wider flex items-center space-x-1 shadow-md hover:bg-slate-800 cursor-pointer"
+            >
+              <Leaf className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+              <span>Show Eco Stats</span>
+            </button>
+          )}
         </div>
       )}
     </div>

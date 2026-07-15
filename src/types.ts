@@ -235,6 +235,8 @@ export interface OrderActivity {
   statusLabel: string;
   paymentMethod: string;
   etaMins?: number;
+  pickupCoords?: { lat: number; lng: number };
+  destCoords?: { lat: number; lng: number };
 }
 
 export interface OngoingActivity {
@@ -253,6 +255,8 @@ export interface OngoingActivity {
   eta?: string;
   otpConfirm?: string;
   routeString?: string;
+  pickupCoords?: { lat: number; lng: number };
+  destCoords?: { lat: number; lng: number };
 }
 
 export interface BiometricLog {

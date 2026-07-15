@@ -13,6 +13,8 @@ interface AIAssistantProps {
   onCloseFloatingChat?: () => void;
   isDedicatedPage?: boolean;
   onMinimize?: () => void;
+  featureToggles?: any;
+  personalizedPrompts?: any[];
 }
 
 export default function AIAssistant({
@@ -25,7 +27,9 @@ export default function AIAssistant({
   setActiveTab,
   onCloseFloatingChat,
   isDedicatedPage,
-  onMinimize
+  onMinimize,
+  featureToggles,
+  personalizedPrompts = []
 }: AIAssistantProps) {
   const [messages, setMessages] = useState<any[]>([
     {
@@ -83,7 +87,8 @@ export default function AIAssistant({
              food: foodPrefs,
              mart: martPrefs,
              rides: ridePrefs
-           }
+           },
+           featureToggles
          })
       });
 
@@ -290,53 +295,94 @@ export default function AIAssistant({
 
               {/* Clickable Smart Travel Planner Banner directly below first assistant greeting */}
               {isAI && i === 0 && (
-                <div className="ml-9 mt-1 mb-2 p-3 bg-gradient-to-r from-amber-500/10 to-indigo-500/10 border border-amber-500/20 rounded-2xl space-y-2.5 shadow-xs">
-                  <div className="flex items-center space-x-1.5 text-amber-700 font-mono font-extrabold uppercase text-[10px]">
-                    <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" />
-                    <span>AI Help & Travel Planning Options</span>
-                  </div>
-                  <p className="text-[11.5px] font-bold text-indigo-950 leading-snug">
-                    Select an action below or click the smart planner to design a custom day-by-day itinerary:
-                  </p>
-                  
-                  <div className="space-y-1.5">
-                    {/* Clickable message to plan a trip */}
-                    <button
-                      type="button"
-                      onClick={() => setPlannerStep(1)}
-                      className="w-full text-left bg-white hover:bg-amber-50/60 border border-amber-200 p-2.5 rounded-xl transition cursor-pointer flex items-start space-x-2 shadow-2xs"
-                    >
-                      <span className="text-base shrink-0">🗺️</span>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[11.5px] font-black text-amber-900 block truncate">Plan a Trip with Chalo Smart Travel Planner</span>
-                        <span className="text-[9.5px] text-gray-500 block mt-0.5 whitespace-normal">Click here to start interactive day, member & route-wise trip setup</span>
+                <div className="ml-9 mt-1 mb-2 space-y-3">
+                  {/* Dynamic Personalized Prompts (User Habits & Behaviors) */}
+                  {personalizedPrompts && personalizedPrompts.length > 0 && (
+                    <div className="p-3 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/20 rounded-2xl space-y-2.5 shadow-xs">
+                      <div className="flex items-center space-x-1.5 text-emerald-700 font-mono font-extrabold uppercase text-[10px]">
+                        <Sparkles className="w-4 h-4 text-emerald-500 animate-pulse" />
+                        <span>💡 Personalized AI Companion Prompts</span>
                       </div>
-                    </button>
+                      <p className="text-[11px] font-bold text-slate-800 leading-snug">
+                        Based on your past habits and searching behavior, you can trigger these actions directly:
+                      </p>
+                      
+                      <div className="grid grid-cols-1 gap-2">
+                        {personalizedPrompts.map((prompt) => (
+                          <button
+                            key={prompt.id}
+                            type="button"
+                            onClick={() => {
+                              prompt.action();
+                              if (onCloseFloatingChat) onCloseFloatingChat();
+                            }}
+                            className="w-full text-left bg-white hover:bg-emerald-50/40 border border-emerald-100 p-2.5 rounded-xl transition cursor-pointer flex items-center justify-between shadow-2xs group"
+                          >
+                            <div className="flex items-start space-x-2.5 min-w-0">
+                              <span className="text-lg shrink-0">{prompt.icon}</span>
+                              <div className="flex-1 min-w-0">
+                                <span className="text-[11.5px] font-black text-slate-800 block truncate">{prompt.title}</span>
+                                <span className="text-[10px] text-slate-500 block mt-0.5 whitespace-normal leading-tight font-medium">{prompt.subtitle}</span>
+                              </div>
+                            </div>
+                            <span className="shrink-0 text-[10px] font-black uppercase text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg group-hover:bg-emerald-100 group-hover:text-emerald-700 transition ml-2">
+                              {prompt.ctaText} →
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-                    {/* Other options */}
-                    <button
-                      type="button"
-                      onClick={() => handleSendMessage("Compare Delhi to Jaipur cab rates across Uber and Ola")}
-                      className="w-full text-left bg-white hover:bg-gray-50 border border-slate-150 p-2 rounded-xl transition cursor-pointer flex items-start space-x-2 shadow-2xs"
-                    >
-                      <span className="text-base shrink-0">🚕</span>
-                      <div>
-                        <span className="text-[11px] font-bold text-slate-800 block">Compare outstation cab tariffs</span>
-                        <span className="text-[9px] text-gray-400 block">Quick Delhi ➔ Jaipur price checks</span>
-                      </div>
-                    </button>
+                  {/* Smart Travel Planner Banner */}
+                  <div className="p-3 bg-gradient-to-r from-amber-500/10 to-indigo-500/10 border border-amber-500/20 rounded-2xl space-y-2.5 shadow-xs">
+                    <div className="flex items-center space-x-1.5 text-amber-700 font-mono font-extrabold uppercase text-[10px]">
+                      <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" />
+                      <span>AI Help & Travel Planning Options</span>
+                    </div>
+                    <p className="text-[11.5px] font-bold text-indigo-950 leading-snug">
+                      Select an action below or click the smart planner to design a custom day-by-day itinerary:
+                    </p>
+                    
+                    <div className="space-y-1.5">
+                      {/* Clickable message to plan a trip */}
+                      <button
+                        type="button"
+                        onClick={() => setPlannerStep(1)}
+                        className="w-full text-left bg-white hover:bg-amber-50/60 border border-amber-200 p-2.5 rounded-xl transition cursor-pointer flex items-start space-x-2 shadow-2xs"
+                      >
+                        <span className="text-base shrink-0">🗺️</span>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[11.5px] font-black text-amber-900 block truncate">Plan a Trip with Chalo Smart Travel Planner</span>
+                          <span className="text-[9.5px] text-gray-500 block mt-0.5 whitespace-normal">Click here to start interactive day, member & route-wise trip setup</span>
+                        </div>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => handleSendMessage("Find cheapest 3-star resort in Goa on Agoda vs Booking")}
-                      className="w-full text-left bg-white hover:bg-gray-50 border border-slate-150 p-2 rounded-xl transition cursor-pointer flex items-start space-x-2 shadow-2xs"
-                    >
-                      <span className="text-base shrink-0">🏨</span>
-                      <div>
-                        <span className="text-[11px] font-bold text-slate-800 block">Compare Goa resorts on Agoda vs Booking</span>
-                        <span className="text-[9px] text-gray-400 block">Compare live ratings, prices, and room reviews</span>
-                      </div>
-                    </button>
+                      {/* Other options */}
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage("Compare Delhi to Jaipur cab rates across Uber and Ola")}
+                        className="w-full text-left bg-white hover:bg-gray-50 border border-slate-150 p-2 rounded-xl transition cursor-pointer flex items-start space-x-2 shadow-2xs"
+                      >
+                        <span className="text-base shrink-0">🚕</span>
+                        <div>
+                          <span className="text-[11px] font-bold text-slate-800 block">Compare outstation cab tariffs</span>
+                          <span className="text-[9px] text-gray-400 block">Quick Delhi ➔ Jaipur price checks</span>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage("Find cheapest 3-star resort in Goa on Agoda vs Booking")}
+                        className="w-full text-left bg-white hover:bg-gray-50 border border-slate-150 p-2 rounded-xl transition cursor-pointer flex items-start space-x-2 shadow-2xs"
+                      >
+                        <span className="text-base shrink-0">🏨</span>
+                        <div>
+                          <span className="text-[11px] font-bold text-slate-800 block">Compare Goa resorts on Agoda vs Booking</span>
+                          <span className="text-[9px] text-gray-400 block">Compare live ratings, prices, and room reviews</span>
+                        </div>
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}

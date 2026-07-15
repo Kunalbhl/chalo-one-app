@@ -780,14 +780,14 @@ export default function StaysModule({
                 <div className="md:col-span-2 space-y-2">
                   <h4 className="text-sm font-black uppercase tracking-tight text-slate-900">
                     {selectedDeal.platform.toLowerCase().includes("booking")
-                      ? "🎉 Booking via Kunal's Affiliate Link active!"
+                      ? "🎉 Verified Partner Booking Link active!"
                       : "💡 Highly Recommended: Switch to Booking.com to support Chalo!"
                     }
                   </h4>
                   <p className="text-[11px] leading-relaxed text-slate-600 font-medium">
                     {selectedDeal.platform.toLowerCase().includes("booking")
-                      ? "This reservation is securely routed via CJ Affiliate (members.cj.com) under publisher account kunalpareekusa@gmail.com. We have matched live room keys, cancellation terms, and verified that your 12% partner cashback will be processed automatically."
-                      : "You are currently viewing rates from another platform. Switch to Booking.com to route this stay via Kunal's partner portal. Switching keeps the rate low and guarantees priority hotel support!"
+                      ? "This reservation is securely routed via our secure Affiliate Portal. We have matched live room keys, cancellation terms, and verified that your 12% partner cashback will be processed automatically."
+                      : "You are currently viewing rates from another platform. Switch to Booking.com to route this stay via our partner portal. Switching keeps the rate low and guarantees priority hotel support!"
                     }
                   </p>
 

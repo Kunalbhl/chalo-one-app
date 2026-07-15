@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { OngoingActivity } from '../types';
-import { PlayCircle, Clock, MapPin, Search, Calendar, Heart, ArrowUpRight, CheckCircle2, ChevronRight, Fuel } from 'lucide-react';
+import { PlayCircle, Clock, MapPin, Search, Calendar, Heart, ArrowUpRight, CheckCircle2, ChevronRight, Fuel, Map } from 'lucide-react';
 import { jsPDF } from 'jspdf';
+import ActiveRideMap from './ActiveRideMap';
 
 interface ActivityCenterProps {
   activityList: OngoingActivity[];
@@ -22,6 +23,7 @@ export default function ActivityCenter({ activityList, cancelActivity, onActivit
   const [issueDescription, setIssueDescription] = useState<string>('');
   const [isPdfDownloading, setIsPdfDownloading] = useState<boolean>(false);
   const [ticketSubmittedId, setTicketSubmittedId] = useState<string>('');
+  const [expandedMapId, setExpandedMapId] = useState<string | null>(null);
 
   const handleTimelineSearch = (val: string) => {
     setSearchVal(val);
@@ -480,13 +482,39 @@ TOTAL AMOUNT:   ₹${selectedItem.amount}.00
                       </span>
                     </div>
 
-                    <div className="flex items-start space-x-2">
-                      <MapPin className="w-4 h-4 text-rose-500 shrink-0 mt-0.5 animate-bounce" />
-                      <div>
-                        <span className="text-[9.5px] text-gray-400 block font-bold">ROUTE MONITOR</span>
-                        <span className="leading-normal">{item.routeString || 'Your driver is heading towards pickup hotspot point...'}</span>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start space-x-2">
+                        <MapPin className="w-4 h-4 text-rose-500 shrink-0 mt-0.5 animate-bounce" />
+                        <div>
+                          <span className="text-[9.5px] text-gray-400 block font-bold">ROUTE MONITOR</span>
+                          <span className="leading-normal text-xs text-slate-700">{item.routeString || 'Your driver is heading towards pickup hotspot point...'}</span>
+                        </div>
                       </div>
+                      {item.pickupCoords && item.destCoords && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedMapId(expandedMapId === item.id ? null : item.id);
+                          }}
+                          className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[9.5px] font-black tracking-wider uppercase transition shrink-0 cursor-pointer shadow-xs border border-amber-600/20"
+                        >
+                          {expandedMapId === item.id ? 'Hide Tracker' : 'Live Track Map'}
+                        </button>
+                      )}
                     </div>
+
+                    {expandedMapId === item.id && item.pickupCoords && item.destCoords && (
+                      <div className="pt-3 border-t border-gray-150" onClick={(e) => e.stopPropagation()}>
+                        <ActiveRideMap 
+                          pickupCoords={item.pickupCoords}
+                          destCoords={item.destCoords}
+                          driverName={item.subtitle?.split('Captain: ')[1]?.split(' • ')[0] || item.subtitle?.split('Assigned: ')[1]?.split(' (')[0] || "Amit Kumar"}
+                          vehicleInfo={item.subtitle?.split(' • ')[1] || item.subtitle?.split(' (')[1]?.replace(')', '') || "DL 1CA 4492"}
+                          statusLabel={item.status}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -638,7 +666,7 @@ TOTAL AMOUNT:   ₹${selectedItem.amount}.00
 
               {/* Special category layouts */}
               {selectedItem.category === 'rides' && (
-                <div className="border-t border-gray-200/60 pt-2 space-y-1.5 font-medium">
+                <div className="border-t border-gray-200/60 pt-2 space-y-2.5 font-medium">
                   <div className="flex justify-between items-center bg-white p-2 rounded-lg border border-gray-150">
                     <span className="text-gray-500">Cab OTP:</span>
                     <span className="font-mono bg-indigo-100 text-indigo-800 font-black px-2 py-0.5 rounded text-[11px]">{selectedItem.otpConfirm || '9912'}</span>
@@ -647,6 +675,18 @@ TOTAL AMOUNT:   ₹${selectedItem.amount}.00
                     <div className="flex items-start space-x-1 text-gray-600 bg-white p-2 rounded-lg border border-gray-150">
                       <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
                       <span className="text-[10.5px] leading-relaxed">{selectedItem.routeString}</span>
+                    </div>
+                  )}
+                  {selectedItem.status === 'ongoing' && selectedItem.pickupCoords && selectedItem.destCoords && (
+                    <div className="pt-2">
+                      <span className="text-[9.5px] text-gray-400 font-mono font-black uppercase tracking-wider block mb-1.5">Interactive Driver Tracking</span>
+                      <ActiveRideMap 
+                        pickupCoords={selectedItem.pickupCoords}
+                        destCoords={selectedItem.destCoords}
+                        driverName={selectedItem.subtitle?.split('Captain: ')[1]?.split(' • ')[0] || selectedItem.subtitle?.split('Assigned: ')[1]?.split(' (')[0] || "Amit Kumar"}
+                        vehicleInfo={selectedItem.subtitle?.split(' • ')[1] || selectedItem.subtitle?.split(' (')[1]?.replace(')', '') || "DL 1CA 4492"}
+                        statusLabel={selectedItem.status}
+                      />
                     </div>
                   )}
                 </div>

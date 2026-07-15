@@ -4,6 +4,7 @@ import { RideOption, SelectedRide } from '../types';
 import { MapPin, Navigation, Compass, ShieldAlert, PhoneCall, Star, Clock, AlertCircle, Sparkles, CheckCircle, ArrowLeft, RefreshCw, Plus, Trash2, Calendar, FileText, Check, Shield, SlidersHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ChaloMapView from './ChaloMapView';
+import { auth } from '../firebase';
 
 interface RidesModuleProps {
   preferenceMode: string;
@@ -16,6 +17,7 @@ interface RidesModuleProps {
   currentSelectedLocation?: string;
   redirectToLinkedAccounts?: () => void;
   onBackRegister?: (handler: (() => boolean) | null) => void;
+  initialDestination?: string;
 }
 
 export default function RidesModule({
@@ -28,10 +30,11 @@ export default function RidesModule({
   connectedAccounts,
   currentSelectedLocation,
   redirectToLinkedAccounts,
-  onBackRegister
+  onBackRegister,
+  initialDestination
 }: RidesModuleProps) {
   const [pickup, setPickup] = useState(currentSelectedLocation || 'Koramangala, Bangalore');
-  const [destination, setDestination] = useState('');
+  const [destination, setDestination] = useState(initialDestination || '');
   const [pickupCoords, setPickupCoords] = useState<{lat: number, lng: number}>({ lat: 12.9352, lng: 77.6245 }); // default Koramangala
   const [destCoords, setDestCoords] = useState<{lat: number, lng: number} | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -40,6 +43,33 @@ export default function RidesModule({
   const [viewingDetailRide, setViewingDetailRide] = useState<any | null>(null);
   const [sosTriggered, setSosTriggered] = useState(false);
   const [selectedVehicleType, setSelectedVehicleType] = useState<'All' | 'Bike' | 'Auto' | 'Economy' | 'Premium'>('All');
+
+  // Trigger search on mount if initialDestination is provided
+  useEffect(() => {
+    if (initialDestination) {
+      setDestination(initialDestination);
+      setDestCoords({ lat: 12.9716, lng: 77.5946 }); // Bangalore center default coords
+      setIsSearching(true);
+      setComparedRides([]);
+      setSelectedRide(null);
+
+      const timer = setTimeout(() => {
+        const calculatedDistance = 12.8; // Default commute distance
+        const rideOptions = getCalculatedRides(calculatedDistance);
+        if (preferenceMode === 'cheapest') {
+          rideOptions.sort((a, b) => a.price - b.price);
+        } else if (preferenceMode === 'fastest') {
+          rideOptions.sort((a, b) => a.eta - b.eta);
+        } else if (preferenceMode === 'rated') {
+          rideOptions.sort((a, b) => b.driverRating - a.driverRating);
+        }
+        setComparedRides(rideOptions);
+        setIsSearching(false);
+      }, 1200);
+
+      return () => clearTimeout(timer);
+    }
+  }, [initialDestination]);
 
   // Interactive local sorting preference state
   const [localPreferenceMode, setLocalPreferenceMode] = useState<string>(preferenceMode || 'cheapest');
@@ -362,7 +392,9 @@ export default function RidesModule({
       amount: totalFare,
       status: 'active',
       statusLabel: 'Ongoing',
-      paymentMethod: chosenPaymentMode === 'wallet' ? 'Chalo One Wallet Balance' : chosenPaymentMode === 'upi' ? 'GPay UPI Verified' : 'NetBanking Secure Direct'
+      paymentMethod: chosenPaymentMode === 'wallet' ? 'Chalo One Wallet Balance' : chosenPaymentMode === 'upi' ? 'GPay UPI Verified' : 'NetBanking Secure Direct',
+      pickupCoords: pickupCoords,
+      destCoords: destCoords || { lat: 12.9716, lng: 77.5946 }
     });
   };
 
@@ -966,7 +998,7 @@ export default function RidesModule({
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400">Authenticated user</span>
-                    <span className="font-mono text-amber-400 font-bold text-[11px]">kunalpareek@gmail.com</span>
+                    <span className="font-mono text-amber-400 font-bold text-[11px]">{auth.currentUser?.email || 'developer@chalo-one.ai'}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400">Token handshake</span>

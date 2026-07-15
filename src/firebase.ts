@@ -1,6 +1,8 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { initializeAuth, browserLocalPersistence } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider, getToken } from 'firebase/app-check';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase App
@@ -36,5 +38,43 @@ if (app) {
   }
 }
 
-export const FIREBASE_DATABASE_SECRET = "FL2BSNMpV0ZAZl8nez9qX7QZX4He1EorXaVI1Fmf";
-export { auth, db };
+// Initialize Storage
+let storage: any = null;
+if (app) {
+  try {
+    storage = getStorage(app);
+  } catch (e) {
+    console.warn("Error initializing Firebase Storage:", e);
+  }
+}
+
+// Initialize Firebase App Check
+let appCheck: any = null;
+if (app && typeof window !== 'undefined') {
+  try {
+    appCheck = initializeAppCheck(app, {
+      provider: new ReCaptchaEnterpriseProvider('6LeW_90pAAAAAA-dummy-key-for-appcheck-debug'),
+      isTokenAutoRefreshEnabled: true,
+    });
+  } catch (e) {
+    console.warn("Error initializing Firebase App Check:", e);
+  }
+}
+
+export async function getAppCheckToken() {
+  if (!appCheck) {
+    return { token: '' };
+  }
+  try {
+    const tokenResult = await getToken(appCheck);
+    return {
+      token: tokenResult.token,
+    };
+  } catch (e) {
+    console.warn("Error getting App Check token:", e);
+    return { token: '' };
+  }
+}
+
+export { auth, db, storage, appCheck };
+

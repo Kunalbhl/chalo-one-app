@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
 // @ts-ignore
 import appLogo from './assets/images/logo.png';
-import { db, FIREBASE_DATABASE_SECRET } from './firebase';
+import { db, auth } from './firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { AuthService } from './services/authService';
+import { FirestoreService } from './services/firestoreService';
+import { WalletService } from './services/walletService';
+import { NotificationService } from './services/notificationService';
 import { 
   UserProfile, 
   Address, 
@@ -36,6 +40,8 @@ import BiometricShield from './components/BiometricShield';
 import LoginSignup from './components/LoginSignup';
 import BillsModule from './components/BillsModule';
 import ChaloMapView from './components/ChaloMapView';
+import CommuteAlertSystem from './components/CommuteAlertSystem';
+import { FOOD_ITEMS, MART_ITEMS } from './data';
 
 import { 
   Home as HomeIcon, 
@@ -66,16 +72,32 @@ import {
   Minimize2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+
+const weeklySavingsData = [
+  { week: 'Wk 1', Cab: 80, Food: 60, Grocery: 50, Total: 190 },
+  { week: 'Wk 2', Cab: 120, Food: 90, Grocery: 70, Total: 280 },
+  { week: 'Wk 3', Cab: 100, Food: 85, Grocery: 65, Total: 250 },
+  { week: 'Wk 4', Cab: 140, Food: 110, Grocery: 85, Total: 335 },
+  { week: 'Wk 5', Cab: 150, Food: 120, Grocery: 95, Total: 365 },
+];
 
 export default function App() {
   const [activeTab, setActiveTabRaw] = useState<string>('home');
   const [tabHistory, setTabHistory] = useState<string[]>([]);
   const [moduleBackHandler, setModuleBackHandler] = useState<(() => boolean) | null>(null);
 
+  const registerModuleBackHandler = (handler: (() => boolean) | null) => {
+    setModuleBackHandler(() => handler);
+  };
+
   const setActiveTab = (tab: string | ((prev: string) => string)) => {
     const nextTab = typeof tab === 'function' ? tab(activeTab) : tab;
     if (nextTab !== activeTab) {
       setModuleBackHandler(null); // Reset back handler on tab change
+      if (nextTab !== 'rides') {
+        setInitialDestination('');
+      }
       setTabHistory(prev => {
         if (prev.length > 0 && prev[prev.length - 1] === activeTab) {
           return prev;
@@ -104,6 +126,7 @@ export default function App() {
     }
   };
   const [aiInitialQuery, setAiInitialQuery] = useState<string>('');
+  const [initialDestination, setInitialDestination] = useState<string>('');
   const [accountInitialSection, setAccountInitialSection] = useState<string>('main');
   const redirectToLinkedAccounts = () => {
     setAccountInitialSection('linked_accounts');
@@ -141,31 +164,108 @@ export default function App() {
   }, []);
 
   // Chalo login persistence state
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    return localStorage.getItem('chalo_is_logged_in') === 'true';
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+
+  // 1. User Profile context (Cleaned of any hardcoded admin or dummy account)
+  const [userProfile, setUserProfile] = useState<UserProfile>({
+    id: '',
+    name: '',
+    phone: '',
+    email: '',
+    dob: '',
+    gender: 'Male',
+    savedAddresses: [],
+    referralCode: '',
+    role: 'user'
   });
 
-  // 1. User Profile context with local storage preservation
-  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
-    const saved = localStorage.getItem('chalo_user_profile');
+  // NEW: Feature permissions / phase-wise toggles state
+  const DEFAULT_FEATURE_TOGGLES = {
+    rides: true,
+    intercity: true,
+    food: true,
+    mart: true,
+    stays: true,
+    bills: true,
+    wallet: true,
+    referrals: true,
+    planner: true
+  };
+
+  const [featureToggles, setFeatureToggles] = useState<any>(() => {
+    const saved = localStorage.getItem('chalo_feature_toggles');
     if (saved) {
       try {
         return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return DEFAULT_FEATURE_TOGGLES;
+  });
+
+  useEffect(() => {
+    if (!db) return;
+    const fetchToggles = async () => {
+      try {
+        const configDocRef = doc(db, 'system_config', 'features');
+        const docSnap = await getDoc(configDocRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data && data.toggles) {
+            setFeatureToggles(data.toggles);
+            localStorage.setItem('chalo_feature_toggles', JSON.stringify(data.toggles));
+          }
+        }
       } catch (e) {
-        console.warn('Stale profile in local storage, fallback to default');
+        console.warn("Could not fetch feature toggles from Firestore:", e);
+      }
+    };
+    fetchToggles();
+  }, [db]);
+
+  const saveFeatureToggles = async (toggles: any) => {
+    setFeatureToggles(toggles);
+    localStorage.setItem('chalo_feature_toggles', JSON.stringify(toggles));
+    if (!db) return;
+    try {
+      const configDocRef = doc(db, 'system_config', 'features');
+      await setDoc(configDocRef, {
+        id: 'features',
+        toggles,
+        updatedBy: userProfile?.email || 'unknown_user',
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      console.log("Feature toggles updated in Firestore successfully.");
+    } catch (e) {
+      console.warn("Could not save feature toggles to Firestore:", e);
+    }
+  };
+
+  // Redirect if trying to access disabled modules
+  useEffect(() => {
+    if (featureToggles) {
+      if (activeTab === 'rides' && featureToggles.rides === false) {
+        setActiveTab('home');
+      }
+      if (activeTab === 'intercity' && featureToggles.intercity === false) {
+        setActiveTab('home');
+      }
+      if (activeTab === 'food' && featureToggles.food === false) {
+        setActiveTab('home');
+      }
+      if (activeTab === 'mart' && featureToggles.mart === false) {
+        setActiveTab('home');
+      }
+      if (activeTab === 'stays' && featureToggles.stays === false) {
+        setActiveTab('home');
+      }
+      if (activeTab === 'bills' && featureToggles.bills === false) {
+        setActiveTab('home');
+      }
+      if (activeTab === 'wallet' && featureToggles.wallet === false) {
+        setActiveTab('home');
       }
     }
-    return {
-      id: 'user_kunal',
-      name: 'Kunal Pareek',
-      phone: '+91 99882 10492',
-      email: 'kunalpareekusa@gmail.com',
-      dob: '1998-05-15',
-      gender: 'Male',
-      savedAddresses: [],
-      referralCode: 'CHALO911KP'
-    };
-  });
+  }, [activeTab, featureToggles]);
 
   // Saved Utility Bills state with local storage preservation
   const [savedBills, setSavedBills] = useState<SavedBill[]>(() => {
@@ -207,7 +307,7 @@ export default function App() {
   // 2. Chalo wallet balances with account-specific local storage preservation
   const [wallet, setWallet] = useState<ChaloWallet>(() => {
     const savedProfileStr = localStorage.getItem('chalo_user_profile');
-    let emailKey = 'kunalpareekusa@gmail.com';
+    let emailKey = 'guest';
     if (savedProfileStr) {
       try {
         const p = JSON.parse(savedProfileStr);
@@ -239,7 +339,7 @@ export default function App() {
   // 3. User Search settings with account-specific local storage preservation
   const [preferences, setPreferences] = useState<AppPreferences>(() => {
     const savedProfileStr = localStorage.getItem('chalo_user_profile');
-    let emailKey = 'kunalpareekusa@gmail.com';
+    let emailKey = 'guest';
     if (savedProfileStr) {
       try {
         const p = JSON.parse(savedProfileStr);
@@ -407,27 +507,20 @@ export default function App() {
         setUserProfile(updatedProfile);
         localStorage.setItem('chalo_user_profile', JSON.stringify(updatedProfile));
 
-        // Sync with local registered list
-        try {
-          const stored = localStorage.getItem('chalo_all_users');
-          if (stored) {
-            const parsed = JSON.parse(stored);
-            const nextList = parsed.map((u: any) => {
-              if (u.email.toLowerCase() === userProfile.email.toLowerCase().trim()) {
-                return { ...u, referralCode: upgradedCode };
-              }
-              return u;
-            });
-            localStorage.setItem('chalo_all_users', JSON.stringify(nextList));
-          }
-        } catch (e) {}
-
         // Persist profile updates directly to Firebase database
-        if (db) {
+        if (db && auth.currentUser) {
           try {
-            const userDocRef = doc(db, 'users', userProfile.email.toLowerCase().trim());
+            const userDocRef = doc(db, 'users', auth.currentUser.uid);
             setDoc(userDocRef, {
-              profile: updatedProfile
+              name: updatedProfile.name || '',
+              email: updatedProfile.email || '',
+              phone: updatedProfile.phone || '',
+              dob: updatedProfile.dob || '',
+              gender: updatedProfile.gender || 'Male',
+              photoURL: updatedProfile.avatarUrl || '',
+              role: updatedProfile.role || 'user',
+              emailVerified: auth.currentUser?.emailVerified || false,
+              lastLogin: new Date().toISOString()
             }, { merge: true }).then(() => {
               console.log("Upgraded referral details synced to Firebase Firestore.");
             }).catch(err => {
@@ -458,7 +551,23 @@ export default function App() {
   });
 
   // 5. Saved frequently pickup drop hotspots
-  const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
+  const [savedAddresses, setSavedAddresses] = useState<Address[]>(() => {
+    const savedProfileStr = localStorage.getItem('chalo_user_profile');
+    let emailKey = 'guest';
+    if (savedProfileStr) {
+      try {
+        const p = JSON.parse(savedProfileStr);
+        if (p?.email) emailKey = p.email.toLowerCase().trim();
+      } catch (e) {}
+    }
+    const saved = localStorage.getItem(`chalo_saved_addresses_${emailKey}`);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
 
   // 6. Unified shopping basket cart state
   const [cart, setCart] = useState<UnifiedCartType>({
@@ -468,6 +577,45 @@ export default function App() {
 
   // 7. Support tickets
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+
+  // Sync active user profile to local storage whenever it changes
+  useEffect(() => {
+    if (userProfile) {
+      localStorage.setItem('chalo_user_profile', JSON.stringify(userProfile));
+    }
+  }, [userProfile]);
+
+  // Sync preferences to account-specific local storage whenever they change
+  useEffect(() => {
+    if (userProfile?.email) {
+      const emailKey = userProfile.email.toLowerCase().trim();
+      localStorage.setItem(`chalo_preferences_${emailKey}`, JSON.stringify(preferences));
+    }
+  }, [preferences, userProfile]);
+
+  // Sync wallet to account-specific local storage whenever it changes
+  useEffect(() => {
+    if (userProfile?.email) {
+      const emailKey = userProfile.email.toLowerCase().trim();
+      localStorage.setItem(`chalo_wallet_${emailKey}`, JSON.stringify(wallet));
+    }
+  }, [wallet, userProfile]);
+
+  // Sync saved addresses to account-specific local storage whenever they change
+  useEffect(() => {
+    if (userProfile?.email) {
+      const emailKey = userProfile.email.toLowerCase().trim();
+      localStorage.setItem(`chalo_saved_addresses_${emailKey}`, JSON.stringify(savedAddresses));
+    }
+  }, [savedAddresses, userProfile]);
+
+  // Sync connected accounts to account-specific local storage whenever they change
+  useEffect(() => {
+    if (userProfile?.email) {
+      const emailKey = userProfile.email.toLowerCase().trim();
+      localStorage.setItem(`chalo_connected_accounts_${emailKey}`, JSON.stringify(connectedAccounts));
+    }
+  }, [connectedAccounts, userProfile]);
 
   // -------- GLOBAL SEMANTIC SEARCH CODES -------- //
   const [globalSearchQuery, setGlobalSearchQuery] = useState<string>('');
@@ -615,76 +763,133 @@ export default function App() {
     }
   ]);
 
-  // Syncing user details locally and with Cloud Firestore is helpful
+  // Real-time Authentication & Cloud Sync State Listener
   useEffect(() => {
-    async function loadFirebaseData() {
-      if (!db) return;
-      const emailKey = userProfile?.email ? userProfile.email.toLowerCase().trim() : 'kunalpareekusa@gmail.com';
-      try {
-        const userDocRef = doc(db, 'users', emailKey);
-        const userSnap = await getDoc(userDocRef);
-        if (userSnap.exists()) {
-          const cloudData = userSnap.data();
-          if (cloudData.wallet) setWallet(cloudData.wallet);
-          if (cloudData.preferences) setPreferences(cloudData.preferences);
-          if (cloudData.addresses) setSavedAddresses(cloudData.addresses);
-          if (cloudData.securityAuditLogs) setSecurityAuditLogs(cloudData.securityAuditLogs);
-          if (cloudData.connectedAccounts) setConnectedAccounts(cloudData.connectedAccounts);
-        }
-      } catch (e) {
-        console.warn('Firebase connection offline, utilising local state:', e);
-      }
-    }
-    loadFirebaseData();
-  }, [userProfile?.email]);
+    let unsubscribeDoc: (() => void) | null = null;
 
-  // Load connected accounts from local storage on mount/user change
-  useEffect(() => {
-    const emailKey = userProfile?.email ? userProfile.email.toLowerCase().trim() : 'kunalpareekusa@gmail.com';
-    const localSaved = localStorage.getItem(`chalo_connected_accounts_${emailKey}`);
-    if (localSaved) {
-      try {
-        setConnectedAccounts(JSON.parse(localSaved));
-      } catch (e) {
-        console.warn("Stale connected accounts JSON", e);
+    const unsubscribeAuth = AuthService.onAuthChanged(async (user) => {
+      if (user) {
+        setIsLoggedIn(true);
+        
+        // Listen to real-time updates across decoupled secure collections from Firestore
+        const unsubProfile = FirestoreService.subscribeDocument<any>('users', user.uid, (cloudData) => {
+          if (cloudData) {
+            const mappedProfile: UserProfile = {
+              id: user.uid,
+              name: cloudData.name || '',
+              email: cloudData.email || '',
+              phone: cloudData.phone || '',
+              dob: cloudData.dob || '',
+              gender: cloudData.gender || 'Male',
+              savedAddresses: [],
+              referralCode: `CHALO${user.uid.substring(user.uid.length - 5).toUpperCase()}`,
+              avatarUrl: cloudData.photoURL || '',
+              role: cloudData.role || 'user'
+            };
+            setUserProfile(mappedProfile);
+          }
+        });
+
+        const unsubWallet = FirestoreService.subscribeDocument<ChaloWallet>('wallets', user.uid, (cloudData) => {
+          if (cloudData) {
+            setWallet(cloudData);
+          }
+        });
+
+        const unsubPrefs = FirestoreService.subscribeDocument<AppPreferences>('preferences', user.uid, (cloudData) => {
+          if (cloudData) {
+            setPreferences(cloudData);
+          }
+        });
+
+        const unsubAddresses = FirestoreService.subscribeDocument<any>('addresses', user.uid, (cloudData) => {
+          if (cloudData && cloudData.addresses) {
+            setSavedAddresses(cloudData.addresses);
+          }
+        });
+
+        const unsubLogs = FirestoreService.subscribeDocument<any>('security_logs', user.uid, (cloudData) => {
+          if (cloudData && cloudData.logs) {
+            setSecurityAuditLogs(cloudData.logs);
+          }
+        });
+
+        const unsubConnected = FirestoreService.subscribeDocument<ConnectedAccounts>('connected_accounts', user.uid, (cloudData) => {
+          if (cloudData) {
+            setConnectedAccounts(cloudData);
+          }
+        });
+
+        unsubscribeDoc = () => {
+          unsubProfile();
+          unsubWallet();
+          unsubPrefs();
+          unsubAddresses();
+          unsubLogs();
+          unsubConnected();
+        };
+      } else {
+        setIsLoggedIn(false);
+        if (unsubscribeDoc) {
+          unsubscribeDoc();
+          unsubscribeDoc = null;
+        }
       }
-    }
-  }, [userProfile?.email]);
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeDoc) {
+        unsubscribeDoc();
+      }
+    };
+  }, [db]);
 
   const persistFirebaseUpdate = async (
     updatedWallet: ChaloWallet, 
     updatedPrefs: AppPreferences, 
     updatedLogs?: BiometricLog[],
-    updatedConnectedAccounts?: ConnectedAccounts
+    updatedConnectedAccounts?: ConnectedAccounts,
+    updatedProfile?: UserProfile
   ) => {
-    const emailKey = userProfile?.email ? userProfile.email.toLowerCase().trim() : 'kunalpareekusa@gmail.com';
+    const activeProfile = updatedProfile || userProfile;
+    const userId = auth.currentUser?.uid || activeProfile?.id;
+    if (!userId) return; // Ignore if user is not logged in
     
-    // Save to account-specific keys
-    localStorage.setItem(`chalo_wallet_${emailKey}`, JSON.stringify(updatedWallet));
-    localStorage.setItem(`chalo_preferences_${emailKey}`, JSON.stringify(updatedPrefs));
-    if (updatedLogs !== undefined) {
-      localStorage.setItem(`chalo_security_audit_logs_${emailKey}`, JSON.stringify(updatedLogs));
-    }
-    if (updatedConnectedAccounts !== undefined) {
-      localStorage.setItem(`chalo_connected_accounts_${emailKey}`, JSON.stringify(updatedConnectedAccounts));
-    }
-    
-    // Update active user profile
-    localStorage.setItem('chalo_user_profile', JSON.stringify(userProfile));
-
     if (!db) return;
     try {
-      const userDocRef = doc(db, 'users', emailKey);
+      // 1. Update user profile document users/{uid} containing ONLY the specified 10 fields!
+      const userDocRef = doc(db, 'users', userId);
       await setDoc(userDocRef, {
-        profile: userProfile,
-        wallet: updatedWallet,
-        preferences: updatedPrefs,
-        addresses: savedAddresses,
-        securityAuditLogs: updatedLogs !== undefined ? updatedLogs : securityAuditLogs,
-        connectedAccounts: updatedConnectedAccounts !== undefined ? updatedConnectedAccounts : connectedAccounts,
-        databaseSecret: FIREBASE_DATABASE_SECRET,
-        lastSyncedAt: new Date().toISOString()
+        name: activeProfile.name || '',
+        email: activeProfile.email || '',
+        phone: activeProfile.phone || '',
+        dob: activeProfile.dob || '',
+        gender: activeProfile.gender || 'Male',
+        photoURL: activeProfile.avatarUrl || '',
+        role: activeProfile.role || 'user',
+        emailVerified: auth.currentUser?.emailVerified || false,
+        lastLogin: new Date().toISOString()
       }, { merge: true });
+
+      // 2. Update wallet document wallets/{uid}
+      await setDoc(doc(db, 'wallets', userId), updatedWallet, { merge: true });
+
+      // 3. Update AppPreferences document preferences/{uid}
+      await setDoc(doc(db, 'preferences', userId), updatedPrefs, { merge: true });
+
+      // 4. Update saved addresses document addresses/{uid}
+      await setDoc(doc(db, 'addresses', userId), { addresses: savedAddresses }, { merge: true });
+
+      // 5. Update security logs document security_logs/{uid}
+      if (updatedLogs !== undefined || securityAuditLogs.length > 0) {
+        await setDoc(doc(db, 'security_logs', userId), { logs: updatedLogs !== undefined ? updatedLogs : securityAuditLogs }, { merge: true });
+      }
+
+      // 6. Update connected accounts document connected_accounts/{uid}
+      const activeConnected = updatedConnectedAccounts !== undefined ? updatedConnectedAccounts : connectedAccounts;
+      await setDoc(doc(db, 'connected_accounts', userId), activeConnected, { merge: true });
+
     } catch (e) {
       console.warn('Could not persist state updates to Firestore:', e);
     }
@@ -768,6 +973,33 @@ export default function App() {
     setShowLocationSelectorModal(false);
   };
 
+  const handleSaveWorkAddress = (addressLine: string) => {
+    const existingWorkIdx = savedAddresses.findIndex(addr => addr.label === 'Work');
+    let updatedAddrs = [...savedAddresses];
+    if (existingWorkIdx !== -1) {
+      updatedAddrs[existingWorkIdx] = {
+        ...updatedAddrs[existingWorkIdx],
+        addressLine: addressLine,
+        landmark: 'Office Space',
+        lat: 12.9716,
+        lng: 77.5946
+      };
+    } else {
+      updatedAddrs.push({
+        id: 'ADDR-' + (Date.now()),
+        label: 'Work',
+        addressLine: addressLine,
+        landmark: 'Office Space',
+        lat: 12.9716,
+        lng: 77.5946
+      });
+    }
+    setSavedAddresses(updatedAddrs);
+    const emailKey = userProfile?.email ? userProfile.email.toLowerCase().trim() : 'guest';
+    localStorage.setItem(`chalo_saved_addresses_${emailKey}`, JSON.stringify(updatedAddrs));
+    persistFirebaseUpdate(wallet, preferences);
+  };
+
   // Add / Settle ongoing activities helper
   const addOrderToActivity = (activity: any) => {
     const formatted: OrderActivity = {
@@ -785,6 +1017,124 @@ export default function App() {
       paymentMethod: activity.paymentMethod || 'UPI'
     };
     setActivities(prev => [formatted, ...prev]);
+  };
+
+  // Dynamic Personalization Engine based on repeating user habits and history
+  const getPersonalizedPrompts = () => {
+    const prompts: any[] = [];
+
+    // 1. COMMUTE HABIT: check if there's a work address or if they commute
+    const workAddr = savedAddresses.find(a => a.label === 'Work');
+    const hasRideActivity = activities.some(a => a.category === 'rides');
+    
+    if (workAddr || hasRideActivity) {
+      prompts.push({
+        id: 'commute-office',
+        type: 'commute',
+        title: '💼 Office Commute',
+        subtitle: `Heading to your office? Book a premium ride to ${workAddr ? workAddr.addressLine : 'office'}.`,
+        ctaText: 'Book Cab',
+        icon: '🚗',
+        action: () => {
+          setInitialDestination(workAddr?.addressLine || 'Chalo One Tech Office, RMZ Ecospace');
+          setActiveTab('rides');
+        }
+      });
+    }
+
+    // 2. REPEATED ORDERS: if they have placed orders before, show instant reorder
+    const orderFrequency: { [key: string]: { count: number; item: any; category: 'food' | 'mart' } } = {};
+    
+    activities.forEach(act => {
+      if (act.category === 'food' || act.category === 'mart') {
+        const key = act.title;
+        if (!orderFrequency[key]) {
+          orderFrequency[key] = {
+            count: 1,
+            item: act,
+            category: act.category
+          };
+        } else {
+          orderFrequency[key].count += 1;
+        }
+      }
+    });
+
+    // Add reorder prompt for items
+    Object.keys(orderFrequency).forEach(title => {
+      const freq = orderFrequency[title];
+      prompts.push({
+        id: `reorder-${title.replace(/\s+/g, '-').toLowerCase()}`,
+        type: 'reorder',
+        title: freq.count >= 2 ? `🔄 Repeat Order: ${title}` : `🛒 Buy ${title} Again`,
+        subtitle: `You ordered "${title}" via ${freq.item.platform} before (${freq.count}x). Click to buy again.`,
+        ctaText: 'Re-order',
+        icon: freq.category === 'food' ? '🍔' : '🥛',
+        action: () => {
+          if (freq.category === 'food') {
+            const foundItem = FOOD_ITEMS.find(f => f.name === title) || {
+              id: freq.item.id || 'f-custom',
+              name: title,
+              restaurant: freq.item.merchant || 'Restaurant',
+              platform: freq.item.platform as any || 'Zomato',
+              price: freq.item.amount,
+              deliveryFee: 0,
+              discount: 0,
+              deliveryTime: 30,
+              rating: 4.5,
+              image: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+              isVeg: true
+            };
+            addToFoodCart(foundItem);
+          } else {
+            const foundItem = MART_ITEMS.find(m => m.name === title) || {
+              id: freq.item.id || 'm-custom',
+              name: title,
+              brand: freq.item.merchant || 'Store',
+              weightVolume: '1 Unit',
+              category: 'Grocery',
+              image: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
+              prices: [{ platform: freq.item.platform as any || 'Blinkit', price: freq.item.amount, discountedPrice: freq.item.amount, deliveryTime: 10, inStock: true }]
+            };
+            addMartToCart(foundItem, freq.item.platform);
+          }
+          setActiveTab('checkout');
+        }
+      });
+    });
+
+    // 3. UNPAID BILLS: if any bills are unpaid
+    savedBills.forEach(bill => {
+      if (bill.status && bill.status.toLowerCase() === 'unpaid') {
+        prompts.push({
+          id: `bill-${bill.id}`,
+          type: 'bill',
+          title: `⚡ Unpaid Bill: ${bill.category}`,
+          subtitle: `Your ${bill.billerName} bill of ₹${bill.amountDue || bill.amount} is due.`,
+          ctaText: 'Pay Bill',
+          icon: '⚡',
+          action: () => {
+            setActiveTab('bills');
+          }
+        });
+      }
+    });
+
+    // 4. Default dynamic prompt to consult AI based on preference
+    prompts.push({
+      id: 'advisor-saving',
+      type: 'smart',
+      title: '🤖 Chalo AI Companion',
+      subtitle: `Your mode is "${preferences.preferenceMode}". Let us compare surge and discounts.`,
+      ctaText: 'Ask AI',
+      icon: '✨',
+      action: () => {
+        setAiInitialQuery(`Analyze my preferences for ${preferences.preferenceMode} mode across services and recommend the best ways to maximize savings.`);
+        setActiveTab('ai');
+      }
+    });
+
+    return prompts;
   };
 
   const cancelActivity = (id: string) => {
@@ -930,7 +1280,7 @@ export default function App() {
   };
 
   const applyReferralCodePostSignup = async (code: string): Promise<{ success: boolean; message: string }> => {
-    if (!userProfile) {
+    if (!userProfile || !auth.currentUser) {
       return { success: false, message: 'Please log in first.' };
     }
     
@@ -949,34 +1299,23 @@ export default function App() {
       return { success: false, message: 'You have already applied a referral code!' };
     }
     
-    // Search in all users
-    const allUsersData = localStorage.getItem('chalo_all_users');
-    let allUsers = [];
-    if (allUsersData) {
-      try { allUsers = JSON.parse(allUsersData); } catch(e) {}
-    }
-    
     // Verify code in Firestore first for absolute real-time central correctness
-    let referrerData: { email: string; name: string } | null = null;
+    let referrerData: { email: string; name: string; userId?: string } | null = null;
     if (db) {
       try {
         const docSnap = await getDoc(doc(db, 'referral_codes', trimmedCode));
         if (docSnap.exists()) {
           const data = docSnap.data();
           if (data && data.email) {
-            referrerData = { email: data.email.toLowerCase(), name: data.name || 'User' };
+            referrerData = { 
+              email: data.email.toLowerCase(), 
+              name: data.name || 'User',
+              userId: data.userId
+            };
           }
         }
       } catch (e) {
         console.warn("Error verifying referral code in post-signup:", e);
-      }
-    }
-
-    // Fallback to local storage if Firestore snap is empty
-    if (!referrerData) {
-      const localReferrer = allUsers.find((u: any) => u.referralCode && u.referralCode.toUpperCase() === trimmedCode);
-      if (localReferrer) {
-        referrerData = { email: localReferrer.email.toLowerCase(), name: localReferrer.name };
       }
     }
 
@@ -986,6 +1325,7 @@ export default function App() {
 
     const referrerEmail = referrerData.email;
     const referrerName = referrerData.name;
+    const referrerUserId = referrerData.userId || '';
     
     // Valid code! Apply rewards
     // 1. Reward the current user
@@ -1006,53 +1346,26 @@ export default function App() {
           ...prev.history
         ]
       };
-      // Backup to localStorage
-      const emailKey = userProfile.email.toLowerCase().trim();
-      localStorage.setItem(`chalo_wallet_${emailKey}`, JSON.stringify(updatedWallet));
       return updatedWallet;
     });
-    
-    // 2. Reward the referrer locally
-    const referrerEmailKey = referrerEmail.toLowerCase().trim();
-    const referrerWalletKey = `chalo_wallet_${referrerEmailKey}`;
-    const referrerWalletData = localStorage.getItem(referrerWalletKey);
-    let rWallet = { points: 0, balance: 0.00, history: [] as any[] };
-    if (referrerWalletData) {
-      try {
-        rWallet = JSON.parse(referrerWalletData);
-      } catch(e) {}
-    }
-    rWallet.points += 2000;
-    rWallet.history.unshift({
-      id: 'TXN-' + Math.floor(100000 + Math.random() * 900005),
-      type: 'credit',
-      amount: 100.00,
-      pointsSpentOrEarned: 2000,
-      description: `Referral post-signup bonus: Invited ${userProfile.name}`,
-      createdAt: new Date().toLocaleDateString()
-    });
-    localStorage.setItem(referrerWalletKey, JSON.stringify(rWallet));
 
     // Persist changes to Firestore for both users
     if (db) {
       try {
-        const myEmailLower = userProfile.email.toLowerCase().trim();
-        // 1. Current User
-        await setDoc(doc(db, 'users', myEmailLower), {
-          profile: { ...userProfile, referredBy: trimmedCode },
-          wallet: updatedWallet || wallet
-        }, { merge: true });
+        const myUid = auth.currentUser.uid;
+        // 1. Current User's wallet document update
+        await setDoc(doc(db, 'wallets', myUid), updatedWallet || wallet, { merge: true });
 
-        // 2. Referrer User
-        const refDocRef = doc(db, 'users', referrerEmail);
-        const refDocSnap = await getDoc(refDocRef);
-        let currentRefWallet = rWallet;
-        if (refDocSnap.exists()) {
-          const refDbData = refDocSnap.data();
-          if (refDbData?.wallet) {
+        // 2. Referrer User's wallet document update
+        if (referrerUserId) {
+          const refWalletRef = doc(db, 'wallets', referrerUserId);
+          const refWalletSnap = await getDoc(refWalletRef);
+          let currentRefWallet = { points: 2000, balance: 100.00, history: [] as any[] };
+          if (refWalletSnap.exists()) {
+            const refDbData = refWalletSnap.data();
             currentRefWallet = {
-              ...refDbData.wallet,
-              points: (refDbData.wallet.points || 0) + 2000,
+              ...refDbData,
+              points: (refDbData.points || 0) + 2000,
               history: [
                 {
                   id: 'TXN-' + Math.floor(100000 + Math.random() * 900005),
@@ -1062,20 +1375,20 @@ export default function App() {
                   description: `Referral post-signup bonus: Invited ${userProfile.name}`,
                   createdAt: new Date().toLocaleDateString()
                 },
-                ...(refDbData.wallet.history || [])
+                ...(refDbData.history || [])
               ]
-            };
+            } as any;
           }
-        }
-        await setDoc(refDocRef, { wallet: currentRefWallet }, { merge: true });
+          await setDoc(refWalletRef, currentRefWallet, { merge: true });
 
-        // 3. Store sub-collection referral details under the referrer
-        await setDoc(doc(db, 'users', referrerEmail, 'referrals', myEmailLower), {
-          name: userProfile.name,
-          email: myEmailLower,
-          joinedAt: new Date().toISOString(),
-          pointsAwarded: 2000
-        });
+          // 3. Store sub-collection referral details under the referrer
+          await setDoc(doc(db, 'referrals', referrerUserId, 'joined', myUid), {
+            name: userProfile.name,
+            email: userProfile.email,
+            joinedAt: new Date().toISOString(),
+            pointsAwarded: 2000
+          });
+        }
 
       } catch (e) {
         console.warn("Error updating Firestore for post-signup referral:", e);
@@ -1089,13 +1402,6 @@ export default function App() {
     };
     setUserProfile(updatedProfile);
     localStorage.setItem('chalo_user_profile', JSON.stringify(updatedProfile));
-    
-    // Also update current user in all users database
-    const currentIdx = allUsers.findIndex((u: any) => u.email.toLowerCase() === userProfile.email.toLowerCase());
-    if (currentIdx !== -1) {
-      allUsers[currentIdx] = { ...allUsers[currentIdx], referredBy: trimmedCode };
-      localStorage.setItem('chalo_all_users', JSON.stringify(allUsers));
-    }
     
     return { success: true, message: `Success! Both you and ${referrerName} have been allocated 2,000 points!` };
   };
@@ -1195,7 +1501,9 @@ export default function App() {
     status: act.status === 'active' ? 'ongoing' as const : act.status === 'cancelled' ? 'cancelled' as const : 'completed' as const,
     eta: act.etaMins ? `${act.etaMins} mins` : undefined,
     otpConfirm: act.id === 'CHALO-RIDE-911' ? '2987' : undefined,
-    routeString: act.id === 'CHALO-RIDE-911' ? 'Driver is near Block 4B crossing, taking turn' : undefined
+    routeString: act.id === 'CHALO-RIDE-911' ? 'Driver is near Block 4B crossing, taking turn' : undefined,
+    pickupCoords: act.pickupCoords || (act.id === 'CHALO-RIDE-911' ? { lat: 12.9352, lng: 77.6245 } : undefined),
+    destCoords: act.destCoords || (act.id === 'CHALO-RIDE-911' ? { lat: 12.9719, lng: 77.6412 } : undefined)
   }));
 
   const cartUnifiedCount = cart.foodItems.length + cart.martItems.length + (cart.stayBooking ? 1 : 0);
@@ -1708,88 +2016,105 @@ export default function App() {
                     </form>
 
                     {/* FOCUS STATE Panel for Auto searches / trending tags */}
-                    {globalSearchFocused && (
-                      <div className="bg-slate-50 rounded-2xl border border-slate-200 p-3 space-y-3">
-                        {globalRecentSearches.length > 0 && (
+                    <AnimatePresence>
+                      {globalSearchFocused && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          transition={{ duration: 0.15, ease: 'easeOut' }}
+                          className="bg-slate-50 rounded-2xl border border-slate-200 p-3 space-y-3"
+                        >
+                          {globalRecentSearches.length > 0 && (
+                            <div>
+                              <span className="text-[8px] font-black text-rose-600 uppercase tracking-widest block mb-1 font-mono">⏰ Recent Searches</span>
+                              <div className="flex flex-wrap gap-1">
+                                {globalRecentSearches.map((term, i) => (
+                                  <button
+                                    key={i}
+                                    type="button"
+                                    onClick={() => {
+                                      setGlobalSearchQuery(term);
+                                      handleGlobalSearchSubmit(term);
+                                    }}
+                                    className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-[10px] font-bold text-gray-700 border border-gray-200 rounded-lg cursor-pointer transition flex items-center space-x-1"
+                                  >
+                                    <span>🔍</span>
+                                    <span>{term}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
                           <div>
-                            <span className="text-[8px] font-black text-rose-600 uppercase tracking-widest block mb-1 font-mono">⏰ Recent Searches</span>
-                            <div className="flex flex-wrap gap-1">
-                              {globalRecentSearches.map((term, i) => (
+                            <span className="text-[8px] font-black text-indigo-700 uppercase tracking-widest block mb-1 font-mono">🔥 Trending on Chalo One</span>
+                            <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-800">
+                              {[
+                                { label: 'Cheapest Airport Rides 🚗', val: 'rides' },
+                                { label: 'Zepto Milk Deals 🥛', val: 'mart' },
+                                { label: 'Lounge Discounts 🏨', val: 'stays' },
+                                { label: 'Instant Biryani deals 🍱', val: 'food' }
+                              ].map((trend, i) => (
                                 <button
                                   key={i}
                                   type="button"
                                   onClick={() => {
-                                    setGlobalSearchQuery(term);
-                                    handleGlobalSearchSubmit(term);
+                                    setGlobalSearchQuery(trend.label);
+                                    setActiveTab(trend.val);
+                                    setGlobalSearchFocused(false);
                                   }}
-                                  className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-[10px] font-bold text-gray-700 border border-gray-200 rounded-lg cursor-pointer transition flex items-center space-x-1"
+                                  className="p-2 bg-white hover:bg-indigo-50 rounded-lg border border-gray-200 text-left text-[10px] font-bold text-gray-800 transition cursor-pointer"
                                 >
-                                  <span>🔍</span>
-                                  <span>{term}</span>
+                                  {trend.label}
                                 </button>
                               ))}
                             </div>
                           </div>
-                        )}
-
-                        <div>
-                          <span className="text-[8px] font-black text-indigo-700 uppercase tracking-widest block mb-1 font-mono">🔥 Trending on Chalo One</span>
-                          <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-800">
-                            {[
-                              { label: 'Cheapest Airport Rides 🚗', val: 'rides' },
-                              { label: 'Zepto Milk Deals 🥛', val: 'mart' },
-                              { label: 'Lounge Discounts 🏨', val: 'stays' },
-                              { label: 'Instant Biryani deals 🍱', val: 'food' }
-                            ].map((trend, i) => (
-                              <button
-                                key={i}
-                                type="button"
-                                onClick={() => {
-                                  setGlobalSearchQuery(trend.label);
-                                  setActiveTab(trend.val);
-                                  setGlobalSearchFocused(false);
-                                }}
-                                className="p-2 bg-white hover:bg-indigo-50 rounded-lg border border-gray-200 text-left text-[10px] font-bold text-gray-800 transition cursor-pointer"
-                              >
-                                {trend.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
 
                     {/* Suggestions list based on text typed */}
-                    {globalSearchQuery.trim().length > 0 && (
-                      <div id="global_search_suggestions" className="bg-slate-50 rounded-2xl border border-slate-150 p-2 space-y-1">
-                        <span className="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest pl-2 block mb-1 font-mono">Matching Services</span>
-                        {getSemanticSuggestions().map((srv) => (
-                          <button
-                            key={srv.id}
-                            id={`search_suggest_item_${srv.id}`}
-                            type="button"
-                            onClick={() => {
-                              setActiveTab(srv.id);
-                              setGlobalSearchQuery('');
-                              setGlobalSearchFocused(false);
-                            }}
-                            className="w-full text-left p-2 hover:bg-white hover:shadow-xs rounded-xl transition flex items-center justify-between cursor-pointer border border-transparent hover:border-slate-150"
-                          >
-                            <div className="flex items-center space-x-2">
-                              <span className="text-sm">{srv.icon}</span>
-                              <div className="flex flex-col">
-                                <span className="text-[10.5px] font-extrabold text-slate-800 uppercase">{srv.title}</span>
-                                <span className="text-[8.5px] text-slate-400 font-semibold">{srv.desc}</span>
+                    <AnimatePresence>
+                      {globalSearchQuery.trim().length > 0 && (
+                        <motion.div
+                          id="global_search_suggestions"
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          transition={{ duration: 0.15, ease: 'easeOut' }}
+                          className="bg-slate-50 rounded-2xl border border-slate-150 p-2 space-y-1"
+                        >
+                          <span className="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest pl-2 block mb-1 font-mono">Matching Services</span>
+                          {getSemanticSuggestions().map((srv) => (
+                            <button
+                              key={srv.id}
+                              id={`search_suggest_item_${srv.id}`}
+                              type="button"
+                              onClick={() => {
+                                setActiveTab(srv.id);
+                                setGlobalSearchQuery('');
+                                setGlobalSearchFocused(false);
+                              }}
+                              className="w-full text-left p-2 hover:bg-white hover:shadow-xs rounded-xl transition flex items-center justify-between cursor-pointer border border-transparent hover:border-slate-150"
+                            >
+                              <div className="flex items-center space-x-2">
+                                <span className="text-sm">{srv.icon}</span>
+                                <div className="flex flex-col">
+                                  <span className="text-[10.5px] font-extrabold text-slate-800 uppercase">{srv.title}</span>
+                                  <span className="text-[8.5px] text-slate-400 font-semibold">{srv.desc}</span>
+                                </div>
                               </div>
-                            </div>
-                            <span className="text-[9.5px] text-amber-500 font-bold uppercase mr-1">Go →</span>
-                          </button>
-                        ))}
-                        {getSemanticSuggestions().length === 0 && (
-                          <p id="no_match_text" className="text-[9px] text-slate-450 italic pl-2 py-1">No direct tool matches. Press Enter to consult the Chalo One AI Advisor!</p>
-                        )}
-                      </div>
-                    )}
+                              <span className="text-[9.5px] text-amber-500 font-bold uppercase mr-1">Go →</span>
+                            </button>
+                          ))}
+                          {getSemanticSuggestions().length === 0 && (
+                            <p id="no_match_text" className="text-[9px] text-slate-450 italic pl-2 py-1">No direct tool matches. Press Enter to consult the Chalo One AI Advisor!</p>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
 
                     {/* Quick recommended prompts query chips */}
                     <div id="quick_prompts_container" className="flex flex-wrap gap-1.5 pt-1">
@@ -1899,8 +2224,13 @@ export default function App() {
                         }
                       ];
 
-                      // Filter tiles based on globalSearchQuery
+                      // Filter tiles based on both feature permission toggles and globalSearchQuery
                       const visibleTiles = allTiles.filter(tile => {
+                        // Check if feature is disabled globally by Super Admin
+                        if (featureToggles && featureToggles[tile.id] === false) {
+                          return false;
+                        }
+
                         if (!globalSearchQuery.trim()) return true;
                         const query = globalSearchQuery.toLowerCase();
                         return (
@@ -1948,7 +2278,7 @@ export default function App() {
                           }}
                           initial="hidden"
                           animate="visible"
-                          className="grid grid-cols-1 md:grid-cols-3 gap-3.5 mt-2 font-display font-bold"
+                          className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 mt-2 font-display font-bold"
                         >
                           {visibleTiles.map(tile => (
                             <motion.div
@@ -1971,14 +2301,14 @@ export default function App() {
                               }}
                               whileHover="hover"
                               onClick={() => setActiveTab(tile.tab as any)}
-                              className={`p-4 rounded-3xl border flex flex-col justify-between shadow-xs transition-all space-y-3.5 cursor-pointer ${tile.colorClass}`}
+                              className={`p-3.5 rounded-2xl border flex flex-col justify-between shadow-xs transition-all cursor-pointer min-h-[115px] w-full ${tile.colorClass}`}
                             >
                               <div>
                                 <span className="text-xs font-black tracking-tight leading-none uppercase">{tile.title}</span>
-                                <span className="text-[10.5px] text-gray-400 font-medium font-sans leading-relaxed mt-2.5 block">{tile.desc}</span>
+                                <span className="text-[10px] text-gray-500 font-medium font-sans leading-normal mt-1.5 block">{tile.desc}</span>
                               </div>
-                              <div className="pt-1.5 flex items-center justify-between">
-                                <span className="text-[10px] font-black uppercase tracking-wide opacity-90">{tile.label}</span>
+                              <div className="pt-2 flex items-center justify-between">
+                                <span className="text-[9.5px] font-black uppercase tracking-wide opacity-90">{tile.label}</span>
                               </div>
                             </motion.div>
                           ))}
@@ -1986,6 +2316,47 @@ export default function App() {
                       );
                     })()}
                   </div>
+
+                  {/* Dynamic Personalized Quick-Actions (Chalo AI Habit Companion) */}
+                  {getPersonalizedPrompts().length > 0 && (
+                    <div id="personalized_habits_panel" className="bg-gradient-to-r from-emerald-50/50 to-teal-50/50 border border-emerald-150 p-4 rounded-2xl shadow-xs space-y-2.5 mt-1 pb-4">
+                      <div className="flex items-center justify-between border-b border-emerald-100 pb-2 mb-1">
+                        <div className="flex items-center space-x-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                          <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-widest font-mono">Chalo AI Habit Companion</span>
+                        </div>
+                        <span className="text-[8px] text-slate-400 font-bold bg-white border border-slate-150 px-2 py-0.5 rounded-full font-mono">Live Sync</span>
+                      </div>
+                      
+                      <p className="text-[10.5px] text-slate-600 leading-relaxed font-semibold">
+                        We noticed your regular patterns. Click any action below to execute it instantly:
+                      </p>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {getPersonalizedPrompts().map((prompt) => (
+                          <button
+                            key={prompt.id}
+                            type="button"
+                            onClick={prompt.action}
+                            className="bg-white hover:bg-emerald-50/20 border border-slate-200 hover:border-emerald-300 p-2.5 rounded-xl text-left transition flex flex-col justify-between shadow-2xs cursor-pointer group"
+                          >
+                            <div className="space-y-1 w-full">
+                              <div className="flex items-center space-x-1.5 w-full">
+                                <span className="text-sm shrink-0">{prompt.icon}</span>
+                                <span className="text-[11px] font-extrabold text-slate-800 group-hover:text-emerald-950 transition truncate">{prompt.title}</span>
+                              </div>
+                              <p className="text-[9.5px] text-slate-500 font-medium leading-tight line-clamp-2">{prompt.subtitle}</p>
+                            </div>
+                            <div className="pt-2 w-full flex justify-end">
+                              <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 group-hover:bg-emerald-100 group-hover:text-emerald-700 px-2 py-0.5 rounded-lg transition">
+                                {prompt.ctaText} →
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* REST OF THE FEATURES SHOWING SEGREGATED TOGETHER BELOW WITH USES */}
                   <div className="space-y-2.5">
@@ -2151,6 +2522,44 @@ export default function App() {
                           <span className="text-[8px] text-emerald-300 font-bold block mt-0.5">Sourced Tab ➔</span>
                         </div>
                       </div>
+
+                      {/* Money-Saved Trends Chart */}
+                      <div 
+                        className="mt-4 pt-4 border-t border-white/10" 
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-[10px] text-emerald-300 font-mono uppercase tracking-wider font-bold">Money-Saved Trends (Weekly)</span>
+                          <span className="text-[10px] text-white/75 font-sans font-medium">Cumulative Savings: ₹1,060</span>
+                        </div>
+                        <div className="h-[140px] w-full mt-1">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={weeklySavingsData} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
+                              <XAxis dataKey="week" stroke="rgba(255,255,255,0.4)" fontSize={9} tickLine={false} axisLine={false} />
+                              <YAxis stroke="rgba(255,255,255,0.4)" fontSize={9} tickLine={false} axisLine={false} />
+                              <Tooltip 
+                                contentStyle={{ backgroundColor: '#022c22', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '12px', fontSize: '10px', color: '#fff' }}
+                                itemStyle={{ color: '#34d399' }}
+                                labelStyle={{ fontWeight: 'bold', color: '#fff' }}
+                              />
+                              <Line type="monotone" dataKey="Total" stroke="#10b981" strokeWidth={2.5} activeDot={{ r: 5 }} dot={{ r: 3 }} name="Total Saved" />
+                              <Line type="monotone" dataKey="Cab" stroke="#60a5fa" strokeWidth={1.5} dot={{ r: 1 }} name="Cabs" />
+                              <Line type="monotone" dataKey="Food" stroke="#fb923c" strokeWidth={1.5} dot={{ r: 1 }} name="Food" />
+                              <Line type="monotone" dataKey="Grocery" stroke="#a7f3d0" strokeWidth={1.5} dot={{ r: 1 }} name="Grocery" />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="flex items-center justify-between mt-2.5 px-1">
+                          <div className="flex items-center gap-3 text-[8.5px] font-mono text-white/60">
+                            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 block"></span>Total</span>
+                            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-blue-400 block"></span>Cabs</span>
+                            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-orange-400 block"></span>Food</span>
+                            <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-300 block"></span>Grocery</span>
+                          </div>
+                          <span className="text-[8px] text-emerald-400 font-mono">Live Sync active</span>
+                        </div>
+                      </div>
                     </div>
 
                     {/* F. Smart Travel Planner Trigger Banner */}
@@ -2216,6 +2625,14 @@ export default function App() {
                       </div>
                     </div>
 
+                    {/* Real-Time Commute Alert Notification System */}
+                    <CommuteAlertSystem 
+                      savedAddresses={savedAddresses}
+                      onSaveWorkAddress={handleSaveWorkAddress}
+                      setActiveTab={setActiveTab}
+                      setInitialDestination={setInitialDestination}
+                    />
+
                   </div>
 
                 </div>
@@ -2233,7 +2650,8 @@ export default function App() {
                   connectedAccounts={connectedAccounts}
                   currentSelectedLocation={currentSelectedLocation}
                   redirectToLinkedAccounts={redirectToLinkedAccounts}
-                  onBackRegister={setModuleBackHandler}
+                  onBackRegister={registerModuleBackHandler}
+                  initialDestination={initialDestination}
                 />
               )}
 
@@ -2246,7 +2664,7 @@ export default function App() {
                   currentSelectedLocation={currentSelectedLocation}
                   preferenceMode={preferences.preferenceMode}
                   redirectToLinkedAccounts={redirectToLinkedAccounts}
-                  onBackRegister={setModuleBackHandler}
+                  onBackRegister={registerModuleBackHandler}
                 />
               )}
 
@@ -2263,7 +2681,7 @@ export default function App() {
                   connectedAccounts={connectedAccounts}
                   currentSelectedLocation={currentSelectedLocation}
                   redirectToLinkedAccounts={redirectToLinkedAccounts}
-                  onBackRegister={setModuleBackHandler}
+                  onBackRegister={registerModuleBackHandler}
                 />
               )}
 
@@ -2293,7 +2711,7 @@ export default function App() {
                   preferenceMode={preferences.preferenceMode}
                   redirectToLinkedAccounts={redirectToLinkedAccounts}
                   setAiInitialQuery={setAiInitialQuery}
-                  onBackRegister={setModuleBackHandler}
+                  onBackRegister={registerModuleBackHandler}
                 />
               )}
 
@@ -2321,6 +2739,8 @@ export default function App() {
                   onClearInitialQuery={() => setAiInitialQuery('')}
                   setActiveTab={setActiveTab}
                   isDedicatedPage={true}
+                  featureToggles={featureToggles}
+                  personalizedPrompts={getPersonalizedPrompts()}
                   onMinimize={() => {
                     setActiveTab('home');
                     setShowFloatingChat(true);
@@ -2368,18 +2788,7 @@ export default function App() {
                   userProfile={userProfile}
                   setUserProfile={(profile) => {
                     setUserProfile(profile);
-                    localStorage.setItem('chalo_user_profile', JSON.stringify(profile));
-                    const emailKey = profile.email.toLowerCase().trim();
-                    localStorage.setItem(`chalo_user_profile_${emailKey}`, JSON.stringify(profile));
-                    
-                    // Update in registered fallback database
-                    const savedUsers = JSON.parse(localStorage.getItem('chalo_all_users') || '[]');
-                    const idx = savedUsers.findIndex((u: any) => u.email.toLowerCase() === emailKey);
-                    if (idx !== -1) {
-                      savedUsers[idx] = { ...savedUsers[idx], ...profile };
-                      localStorage.setItem('chalo_all_users', JSON.stringify(savedUsers));
-                    }
-                    persistFirebaseUpdate(wallet, preferences);
+                    persistFirebaseUpdate(wallet, preferences, undefined, undefined, profile);
                   }}
                   preferences={preferences}
                   setPreferences={(prefs) => {
@@ -2396,7 +2805,7 @@ export default function App() {
                   savedAddresses={savedAddresses}
                   setSavedAddresses={(addrs) => {
                     setSavedAddresses(addrs);
-                    const emailKey = userProfile?.email ? userProfile.email.toLowerCase().trim() : 'kunalpareekusa@gmail.com';
+                    const emailKey = userProfile?.email ? userProfile.email.toLowerCase().trim() : 'guest';
                     localStorage.setItem(`chalo_saved_addresses_${emailKey}`, JSON.stringify(addrs));
                     persistFirebaseUpdate(wallet, preferences);
                   }}
@@ -2412,12 +2821,17 @@ export default function App() {
                   wallet={wallet}
                   addCoins={addCoinsToBalance}
                   redeemPointsToCash={redeemPointsToCash}
-                  onLogout={() => {
-                    localStorage.removeItem('chalo_is_logged_in');
-                    localStorage.removeItem('chalo_user_profile');
+                  onLogout={async () => {
+                    try {
+                      await AuthService.logout();
+                    } catch (e) {
+                      console.warn("Error signing out:", e);
+                    }
                     setIsLoggedIn(false);
                   }}
                   activities={activities}
+                  featureToggles={featureToggles}
+                  saveFeatureToggles={saveFeatureToggles}
                 />
               )}
             </motion.div>
@@ -2531,6 +2945,8 @@ export default function App() {
                         onClearInitialQuery={() => setAiInitialQuery('')}
                         setActiveTab={setActiveTab}
                         onCloseFloatingChat={() => setShowFloatingChat(false)}
+                        featureToggles={featureToggles}
+                        personalizedPrompts={getPersonalizedPrompts()}
                       />
                     </div>
                   </motion.div>

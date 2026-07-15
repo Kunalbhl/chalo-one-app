@@ -336,7 +336,7 @@ export const LEADERBOARD_WEEKLY: LeaderboardUser[] = [
   { rank: 1, name: 'Anjali Sharma', points: 14000 },
   { rank: 2, name: 'Rohan Verma', points: 12500 },
   { rank: 3, name: 'Amit Patel', points: 10500 },
-  { rank: 4, name: 'Kunal P (You)', points: 8200, isMe: true }, // fits kunalpareekusa@gmail.com
+  { rank: 4, name: 'You', points: 8200, isMe: true },
   { rank: 5, name: 'Prerna Joshi', points: 7400 },
   { rank: 6, name: 'Vikram Singh', points: 6100 },
   { rank: 7, name: 'Sunita Reddy', points: 4500 }
@@ -346,7 +346,7 @@ export const LEADERBOARD_MONTHLY: LeaderboardUser[] = [
   { rank: 1, name: 'Rohan Verma', points: 48000 },
   { rank: 2, name: 'Anjali Sharma', points: 42500 },
   { rank: 3, name: 'Sunita Reddy', points: 36000 },
-  { rank: 4, name: 'Kunal P (You)', points: 32000, isMe: true },
+  { rank: 4, name: 'You', points: 32000, isMe: true },
   { rank: 5, name: 'Amit Patel', points: 29500 },
   { rank: 6, name: 'Megha Gupta', points: 24100 },
   { rank: 7, name: 'Sanjay Kumar', points: 18400 }

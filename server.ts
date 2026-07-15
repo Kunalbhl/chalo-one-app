@@ -3,6 +3,7 @@ import path from "path";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import nodemailer from "nodemailer";
 
 dotenv.config();
 
@@ -17,7 +18,7 @@ async function startServer() {
   // 1. API route for Gemini AI Assistant Chatbot
   app.post("/api/chat", async (req, res) => {
     try {
-      const { messages, userPreferences } = req.body;
+      const { messages, userPreferences, featureToggles } = req.body;
       if (!messages || !Array.isArray(messages)) {
         return res.status(400).json({ error: "Messages array is required." });
       }
@@ -25,7 +26,7 @@ async function startServer() {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
         console.warn("GEMINI_API_KEY is not configured or holds placeholder. Falling back to local heuristic responder.");
-        return res.json({ text: getLocalAIResponse(messages, userPreferences) });
+        return res.json({ text: getLocalAIResponse(messages, userPreferences, featureToggles) });
       }
 
       // Lazy load SDK to prevent startup crashes if key is empty
@@ -33,7 +34,7 @@ async function startServer() {
       
       const lastUserMessage = messages[messages.length - 1]?.content || "";
       
-      const systemInstruction = `
+      let systemInstruction = `
         You are "Chalo Support AI", the super-intelligent companion and trip planner for "Chalo - India's Everyday Super App".
         Chalo integrates services across India: Ola, Uber, Rapido, Namma Yatri, BluSmart (Rides); Swiggy, Zomato, EatSure (Food); Blinkit, Zepto, Instamart, JioMart (Mart); Booking.com, Agoda, MakeMyTrip, Cleartrip (Stays).
 
@@ -60,6 +61,27 @@ async function startServer() {
         - Favorite Mart platforms: ${(userPreferences?.mart || []).join(', ') || 'Blinkit, Zepto, Instamart'}
         - Favorite Cab platforms: ${(userPreferences?.rides || []).join(', ') || 'Uber, Ola, Rapido'}
       `;
+
+      if (featureToggles) {
+        const disabledList = [];
+        if (featureToggles.rides === false) disabledList.push("Local Cabs (rides, Uber, Ola, Rapido, etc)");
+        if (featureToggles.intercity === false) disabledList.push("Outstation Cabs (intercity)");
+        if (featureToggles.food === false) disabledList.push("Food Delivery (food, Swiggy, Zomato deals)");
+        if (featureToggles.mart === false) disabledList.push("Fast Grocery (mart, Blinkit, Zepto, Instamart)");
+        if (featureToggles.stays === false) disabledList.push("Book Stays (stays, Agoda, Booking.com hotel comparison)");
+        if (featureToggles.bills === false) disabledList.push("Utility Bills (bills, electricity, Broadband, etc)");
+        if (featureToggles.wallet === false) disabledList.push("Wallet Program (wallet balances, coins, loyalty points, etc)");
+        if (featureToggles.referrals === false) disabledList.push("Referral and Affiliate Program");
+        if (featureToggles.planner === false) disabledList.push("Smart Travel Planner (itineraries)");
+
+        if (disabledList.length > 0) {
+          systemInstruction += `
+            CRITICAL SYSTEM PHASE CONTROL WARNING:
+            The Super Admin has DISABLED the following application features in the system configuration settings: ${disabledList.join(", ")}.
+            If the user asks about any of these disabled features, mentions them, or tries to use them, you MUST politely explain that this feature is coming soon in an upcoming phase of Chalo One! Promote it with excitement but do not offer support, itinerary components, or comparison details for it, and state that it is currently undergoing system upgrades or preparing for release. Do not provide dummy details or comparisons for these disabled features!
+          `;
+        }
+      }
 
       // Structure contents for Gemini API (transform array to Gemini model format)
       // Gemini contents format uses roles 'user' and 'model'
@@ -105,40 +127,87 @@ async function startServer() {
   app.post("/api/send-email", async (req, res) => {
     try {
       const { recipient, subject, body, actionType } = req.body;
+      const smtpHost = process.env.SMTP_HOST;
+      const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : 587;
+      const smtpUser = process.env.SMTP_USER;
+      const smtpPass = process.env.SMTP_PASS;
+      const smtpSenderName = process.env.SMTP_SENDER_NAME || "Chalo One Super-App";
+
       const webhookApi = process.env.EMAIL_WEBHOOK_API;
       const apiToken = process.env.EMAIL_API_TOKEN;
 
-      if (!webhookApi || !apiToken) {
-        return res.status(500).json({
-          error: "Email configuration is incomplete. Please ensure EMAIL_WEBHOOK_API and EMAIL_API_TOKEN are configured.",
-          webhookConfigured: !!webhookApi,
-          tokenConfigured: !!apiToken
+      // Check if SMTP is configured for real delivery
+      if (smtpHost && smtpUser && smtpPass) {
+        console.log(`[Email SMTP] Attempting real SMTP email delivery to ${recipient} via ${smtpHost}:${smtpPort}...`);
+        const transporter = nodemailer.createTransport({
+          host: smtpHost,
+          port: smtpPort,
+          secure: smtpPort === 465, // true for 465, false for 587 or 25
+          auth: {
+            user: smtpUser,
+            pass: smtpPass
+          }
+        });
+
+        await transporter.sendMail({
+          from: `"${smtpSenderName}" <${smtpUser}>`,
+          to: recipient,
+          subject: subject,
+          text: body
+        });
+
+        console.log(`[Email SMTP] Real email dispatched successfully to ${recipient}`);
+        return res.json({
+          success: true,
+          message: "Real SMTP email dispatched successfully to your inbox.",
+          deliveryId: "CHALO_SMTP_" + Math.floor(100000 + Math.random() * 900000),
+          realDelivery: true,
+          timestamp: new Date().toISOString()
         });
       }
 
-      console.log(`[Email API] Dispatching message via SMTP API Token: ...${apiToken.substring(apiToken.length - 8)}`);
-      console.log(`[Webhook Trigger] Sending event hook to API Endpoint: ...${webhookApi.substring(webhookApi.length - 8)}`);
+      // If no SMTP, check if webhook configuration is present
+      if (webhookApi && apiToken && webhookApi !== "YOUR_EMAIL_WEBHOOK_API" && apiToken !== "YOUR_EMAIL_API_TOKEN") {
+        console.log(`[Email Webhook] Dispatching message via SMTP Webhook API Token to ${recipient}`);
+        return res.json({
+          success: true,
+          message: "Email dispatch and webhook notification scheduled successfully.",
+          deliveryId: "CHALO_MSG_" + Math.floor(100000 + Math.random() * 900000),
+          realDelivery: false,
+          timestamp: new Date().toISOString(),
+          details: {
+            recipient: recipient || "kunalpareekusa@gmail.com",
+            subject: subject || "Chalo System Notification",
+            actionType: actionType || "SYSTEM_ALERT"
+          }
+        });
+      }
 
-      // Here, we simulate the real network invocation to the email delivery system and webhook relay.
-      // We can also make a real fetch call if the webhook URL was a complete URL, but since it is an API key, we simulate a standard delivery.
-      const responsePayload = {
+      // Graceful local simulation fallback so registrations and password resets never fail!
+      console.log("--------------------------------------------------------------------------------");
+      console.log(`📬 [SIMULATED EMAIL DISPATCH]`);
+      console.log(`To: ${recipient}`);
+      console.log(`Subject: ${subject}`);
+      console.log(`Action Type: ${actionType}`);
+      console.log(`Body:\n${body}`);
+      console.log("--------------------------------------------------------------------------------");
+      console.log(`💡 DEVELOPER NOTE: To enable real email delivery to your inbox, configure SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASS in Settings.`);
+
+      return res.json({
         success: true,
-        message: "Email dispatch and webhook notification scheduled successfully.",
-        deliveryId: "CHALO_MSG_" + Math.floor(100000 + Math.random() * 900000),
+        simulated: true,
+        message: "Email dispatch simulated successfully. To get real emails delivered, please configure SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASS under the Settings menu in AI Studio.",
+        deliveryId: "CHALO_SIM_" + Math.floor(100000 + Math.random() * 900000),
         timestamp: new Date().toISOString(),
         details: {
-          recipient: recipient || "kunalpareekusa@gmail.com",
-          subject: subject || "Chalo System Notification",
-          actionType: actionType || "SYSTEM_ALERT",
-          webhookMask: `***${webhookApi.substring(webhookApi.length - 12)}`,
-          tokenMask: `***${apiToken.substring(apiToken.length - 12)}`
+          recipient: recipient,
+          subject: subject,
+          actionType: actionType
         }
-      };
-
-      return res.json(responsePayload);
+      });
     } catch (error: any) {
-      console.error("Email/Webhook Dispatch Error:", error);
-      return res.status(500).json({ error: error.message });
+      console.error("Email Delivery/Dispatch Error:", error);
+      return res.status(500).json({ error: error.message || "Failed to dispatch email" });
     }
   });
 
@@ -234,9 +303,37 @@ async function startServer() {
 
 
   // 2. Fallback local AI response generator for offline/local run scenarios
-  function getLocalAIResponse(messages: any[], userPreferences: any): string {
+  function getLocalAIResponse(messages: any[], userPreferences: any, featureToggles?: any): string {
     const lastMsg = (messages[messages.length - 1]?.content || "").toLowerCase();
     const allMsgsStr = messages.map(m => m.content.toLowerCase()).join(" ");
+
+    // Check disabled features
+    if (featureToggles) {
+      if (featureToggles.planner === false && (allMsgsStr.includes("plan") || allMsgsStr.includes("trip") || allMsgsStr.includes("itinerary"))) {
+        return `🌸 **Namaste! Our premium Smart Travel Planner is a highly anticipated feature that is coming very soon in our next development phase!**\n\nStay tuned, we are preparing an elite, interactive holiday planner for you!`;
+      }
+      if (featureToggles.rides === false && (lastMsg.includes("ride") || lastMsg.includes("cab") || lastMsg.includes("taxi") || lastMsg.includes("uber") || lastMsg.includes("ola"))) {
+        return `🚕 **Namaste! The Local Cabs & Ride Comparison feature is currently undergoing system upgrades and will be launched in the next phase.**\n\nWe are partnering with India's leading cab services to bring you the lowest prices soon!`;
+      }
+      if (featureToggles.food === false && (lastMsg.includes("food") || lastMsg.includes("biryani") || lastMsg.includes("hungry"))) {
+        return `🍔 **Namaste! Food Delivery Comparison (Zomato & Swiggy deals) is coming soon in an upcoming release phase.**\n\nGet ready to order delicious meals at the absolute cheapest rates!`;
+      }
+      if (featureToggles.mart === false && (lastMsg.includes("grocery") || lastMsg.includes("milk") || lastMsg.includes("mart"))) {
+        return `🛒 **Namaste! The Fast Grocery Mart Comparison feature is currently in preparation for our next release phase.**\n\nSoon you will be able to search and order groceries instantly!`;
+      }
+      if (featureToggles.stays === false && (lastMsg.includes("hotel") || lastMsg.includes("stay") || lastMsg.includes("goa"))) {
+        return `🏨 **Namaste! Stays & Hotels Booking Comparison is slated for launch in our future ecosystem phase.**\n\nExcited to help you find the best beach resorts and hotels across India soon!`;
+      }
+      if (featureToggles.bills === false && (lastMsg.includes("bill") || lastMsg.includes("electricity") || lastMsg.includes("recharge"))) {
+        return `⚡ **Namaste! Utility Bills payment and rewards will be introduced in an upcoming phase of Chalo One.**\n\nPay electricity, broadband, and mobile recharges with extra coupon savings soon!`;
+      }
+      if (featureToggles.wallet === false && (lastMsg.includes("wallet") || lastMsg.includes("coin") || lastMsg.includes("loyalty") || lastMsg.includes("redeem"))) {
+        return `💰 **Namaste! Chalo Loyalty Wallet is undergoing system configuration upgrades. It will be released in an upcoming phase.**\n\nStay tuned to unlock absolute cashbacks on every single order!`;
+      }
+      if (featureToggles.referrals === false && (lastMsg.includes("referral") || lastMsg.includes("affiliate") || lastMsg.includes("invite") || lastMsg.includes("code"))) {
+        return `🎁 **Namaste! Chalo Referral and Affiliate rewards program is a VIP feature that will launch in our future ecosystem expansion phase.**\n\nSoon you will be able to share your code and earn heavy loyalty fees on every friend's signup!`;
+      }
+    }
 
     // Check if user is trying to plan a trip / travel
     if (allMsgsStr.includes("plan") || allMsgsStr.includes("trip") || allMsgsStr.includes("itinerary") || allMsgsStr.includes("travel planner")) {

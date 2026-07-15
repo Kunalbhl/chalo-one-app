@@ -1,79 +1,58 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Default deny catch-all
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Helper: Checks if user is authenticated
-    function isSignedIn() {
+    // Helper to check if user is authenticated
+    function isAuthenticated() {
       return request.auth != null;
     }
 
-    // Helper: Checks if user is the Super Admin (Kunal)
-    function isSuperAdmin() {
-      return isSignedIn() && (
-        request.auth.token.email == 'kunalpareekusa@gmail.com' ||
-        request.auth.uid == 'user_kunal'
-      );
+    // Helper to check if user is accessing their own resource
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Helper: Check valid ID structure
-    function isValidId(id) {
-      return id is string && id.size() <= 128;
-    }
-
-    // Collection: users
+    // User profiles collection security rules
     match /users/{userId} {
-      allow get: if isValidId(userId);
-      allow create: if isValidId(userId);
-      allow update: if isValidId(userId);
-      allow delete: if isSuperAdmin();
-
-      // Sub-collection: referrals
-      match /referrals/{referralId} {
-        allow read: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email == userId);
-        allow create: if isSignedIn();
-        allow update, delete: if isSuperAdmin();
-      }
+      allow read, write: if isOwner(userId);
     }
 
-    // Collection: referral_codes
-    match /referral_codes/{code} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isSuperAdmin();
+    // Wallets collection security rules
+    match /wallets/{userId} {
+      allow read, write: if isOwner(userId);
     }
 
-    // Collection: affiliates
-    match /affiliates/{affiliateId} {
-      allow read: if isSuperAdmin() || (isSignedIn() && request.auth.uid == affiliateId);
-      allow create: if isSuperAdmin() || (isSignedIn() && request.auth.uid == affiliateId);
-      allow update: if isSuperAdmin() || (isSignedIn() && request.auth.uid == affiliateId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['id', 'email', 'status', 'commissionRate']));
-      allow delete: if isSuperAdmin();
+    // Referrals collection security rules
+    match /referrals/{userId} {
+      allow read, write: if isOwner(userId);
     }
 
-    // Collection: clicks_log
-    match /clicks_log/{clickId} {
-      allow read: if isSuperAdmin() || (isSignedIn() && resource.data.affiliateId == request.auth.uid);
-      allow create: if isSignedIn(); // Any verified partner or client can register clicks
-      allow update, delete: if isSuperAdmin();
+    // Preferences collection security rules
+    match /preferences/{userId} {
+      allow read, write: if isOwner(userId);
     }
 
-    // Collection: payouts
-    match /payouts/{payoutId} {
-      allow read: if isSuperAdmin() || (isSignedIn() && resource.data.affiliateId == request.auth.uid);
-      allow create: if isSuperAdmin();
-      allow update: if isSuperAdmin();
-      allow delete: if isSuperAdmin();
+    // Notifications collection security rules
+    match /notifications/{userId} {
+      allow read, write: if isOwner(userId);
     }
 
-    // Collection: system_config
+    // Rides, bookings, and support tickets rules
+    match /rides/{rideId} {
+      allow read, write, create: if isAuthenticated();
+    }
+
+    match /bookings/{bookingId} {
+      allow read, write, create: if isAuthenticated();
+    }
+
+    match /supportTickets/{ticketId} {
+      allow read, write, create: if isAuthenticated();
+    }
+
+    // System configurations (e.g. features toggles)
     match /system_config/{configId} {
-      allow read: if isSignedIn(); // All partners need to read standard settings (e.g., default commission)
-      allow write: if isSuperAdmin();
+      allow read: if true;
+      allow write: if isAuthenticated();
     }
   }
 }

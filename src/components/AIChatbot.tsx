@@ -4,6 +4,7 @@ import { Send, Sparkles, MessageSquareCode, ShieldCheck, AlertCircle, RefreshCw 
 
 interface AIChatbotProps {
   userPreferences: AppPreferences;
+  featureToggles?: any;
 }
 
 interface ChatMessage {
@@ -13,7 +14,7 @@ interface ChatMessage {
   isFallback?: boolean;
 }
 
-export default function AIChatbot({ userPreferences }: AIChatbotProps) {
+export default function AIChatbot({ userPreferences, featureToggles }: AIChatbotProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
@@ -58,7 +59,8 @@ export default function AIChatbot({ userPreferences }: AIChatbotProps) {
         },
         body: JSON.stringify({
           messages: [...messages, userMsg].map(m => ({ role: m.role, content: m.content })),
-          userPreferences
+          userPreferences,
+          featureToggles
         })
       });
 
