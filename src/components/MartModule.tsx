@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { MART_ITEMS } from '../data';
+import { CommerceDataInstance } from '../services/data/CommerceDataMapper';
+
 import { MartItem, UnifiedCart } from '../types';
 import { Search, ShoppingCart, Zap, Star, ShieldAlert, Heart, RefreshCw, BookmarkCheck, ArrowRight, SlidersHorizontal } from 'lucide-react';
 
@@ -26,6 +27,10 @@ export default function MartModule({
   currentSelectedLocation,
   redirectToLinkedAccounts
 }: MartModuleProps) {
+    const [DETAILED_PRODUCTS, setDetailedProducts] = useState<any[]>([]);
+  useEffect(() => {
+    CommerceDataInstance.getMartData('').then(data => setDetailedProducts(data as any));
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [recentSearches, setRecentSearches] = useState<string[]>(['Organic Milk', 'Brown Bread', 'Amul Butter']);
   const [searchFocused, setSearchFocused] = useState(false);
@@ -66,10 +71,10 @@ export default function MartModule({
   };
 
   // Handle filter items with advanced multi-platform sort
-  let filteredProducts = MART_ITEMS.filter(item => {
+  let filteredProducts = DETAILED_PRODUCTS.filter(item => {
     const matchesSearch = searchQuery.trim() === '' || 
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      item.brand.toLowerCase().includes(searchQuery.toLowerCase());
+      item.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      item.brand?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCat = activeCategory === 'All' || item.category === activeCategory;
     
     let matchesDiet = true;
@@ -140,8 +145,8 @@ export default function MartModule({
   // Reorder instant triggers
   const handleSmartReorder = (listName: string) => {
     // Adds milk and bread to cart from Blinkit automatically
-    const milk = MART_ITEMS.find(m => m.id === 'm1');
-    const bread = MART_ITEMS.find(m => m.id === 'm2');
+    const milk = DETAILED_PRODUCTS.find(m => m.id === 'm1');
+    const bread = DETAILED_PRODUCTS.find(m => m.id === 'm2');
     if (milk) addMartToCart(milk, 'Blinkit');
     if (bread) addMartToCart(bread, 'Blinkit');
 

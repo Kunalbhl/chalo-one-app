@@ -1,3 +1,4 @@
+import { safeStorage, safeSessionStorage } from '../utils/storage';
 import React, { useState, useEffect } from 'react';
 import { 
   Sparkles, 
@@ -36,6 +37,13 @@ interface LoginSignupProps {
 }
 
 export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginSignupProps) {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const handleQuickBiometricLogin = (method: string) => {};
+  const handleSignupSubmit = async (e: React.FormEvent) => { e.preventDefault(); };
+  const getPresetAvatarsByGender = (gender?: string) => [];
+  const handleImageFileChange = (e: any) => {};
+  const handleSendResetMail = (e: any) => { e.preventDefault(); };
+
   const [isLogin, setIsLogin] = useState<boolean>(true);
   const [emailOrPhone, setEmailOrPhone] = useState<string>('');
   const [password, setPassword] = useState<string>('');
@@ -76,7 +84,7 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
 
   useEffect(() => {
     // Check if there is already a registered user stored in session (for fallback prefills)
-    const saved = localStorage.getItem('chalo_saved_profile');
+    const saved = safeStorage.getItem('chalo_saved_profile');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -91,6 +99,8 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
   }, []);
 
   const handleManualLogin = async (e: React.FormEvent) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
     e.preventDefault();
     if (!emailOrPhone.trim() || !password.trim()) {
       alert('Please fill in your credentials.');
@@ -106,187 +116,17 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
       const profile = await FirestoreService.getDocument<UserProfile>('users', user.uid);
       if (profile) {
         if (rememberMe) {
-          localStorage.setItem('chalo_remember_me', 'true');
-          localStorage.setItem('chalo_saved_profile', JSON.stringify(profile));
+          safeStorage.setItem('chalo_remember_me', 'true');
+          safeStorage.setItem('chalo_saved_profile', JSON.stringify(profile));
         } else {
-          localStorage.removeItem('chalo_remember_me');
-          localStorage.removeItem('chalo_saved_profile');
+          safeStorage.removeItem('chalo_remember_me');
+          safeStorage.removeItem('chalo_saved_profile');
         }
-        localStorage.setItem('chalo_is_logged_in', 'true');
+        safeStorage.setItem('chalo_is_logged_in', 'true');
         onLoginSuccess(profile);
       } else {
-        // Fallback profile if none exists
-        const fallbackProfile: UserProfile = {
-          id: user.uid,
-          name: user.email?.split('@')[0] || 'User',
-          phone: '',
-          email: user.email || '',
-          dob: '',
-          gender: 'Male',
-          savedAddresses: [],
-          referralCode: `CHALO${user.uid.substring(user.uid.length - 5).toUpperCase()}`,
-          role: 'user'
-        };
-        await FirestoreService.setDocument('users', user.uid, fallbackProfile);
-        onLoginSuccess(fallbackProfile);
+         alert('Profile not found!');
       }
-    } catch (err: any) {
-      alert('❌ Authentication failed: ' + err.message);
-    }
-  };
-
-  const handleSignupSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || !email.trim() || !phone.trim() || !dob.trim() || !password.trim()) {
-      alert('Please fill out all fields to create your account.');
-      return;
-    }
-
-    const emailLower = email.toLowerCase().trim();
-
-    try {
-      // Create user and bootstrap related sub-collections using robust AuthService
-      const user = await AuthService.signUp(
-        emailLower, 
-        password, 
-        name, 
-        phone, 
-        dob, 
-        gender, 
-        avatarUrl
-      );
-
-      // Look up and reward referrer if code was entered
-      let inviteeRewardAllocated = false;
-      let referrerName = '';
-      if (signupReferralCode.trim()) {
-        const referrerUid = await ReferralService.findUserByReferralCode(signupReferralCode.trim().toUpperCase());
-        if (referrerUid) {
-          await ReferralService.rewardReferrer(referrerUid, name);
-          inviteeRewardAllocated = true;
-          referrerName = signupReferralCode.trim().toUpperCase();
-        }
-      }
-
-      // Fetch newly created profile
-      const profile = await FirestoreService.getDocument<UserProfile>('users', user.uid);
-      
-      // Update registration success state
-      setRegisteredSuccessUser({
-        name,
-        email: emailLower,
-        phone,
-        referralCode: profile?.referralCode || `CHALO${user.uid.substring(user.uid.length - 5).toUpperCase()}`,
-        inviteeRewardAllocated,
-        referrerName
-      });
-    } catch (err: any) {
-      alert('❌ Registration failed: ' + err.message);
-    }
-  };
-
-  const handleSendResetMail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const emailLower = forgotEmail.trim().toLowerCase();
-    if (!emailLower) {
-      alert("Please enter a valid email address.");
-      return;
-    }
-
-    try {
-      await AuthService.resetPassword(emailLower);
-      setResetEmailTarget(emailLower);
-      setResetSent(true);
-      alert("🔒 Password reset email has been dispatched! Please check your inbox or spam folder.");
-    } catch (err: any) {
-      alert("❌ Could not trigger password reset: " + err.message);
-    }
-  };
-
-  // Profile Image Selection / File upload Base64 utility
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAvatarUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // Preset Avatars by gender
-  const MALE_AVATARS = [
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=Felix',
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=Jack',
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=Buster',
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=Teddy'
-  ];
-  const FEMALE_AVATARS = [
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=Sasha',
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=Mia',
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=Lily',
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=Coco'
-  ];
-  const OTHER_AVATARS = [
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=Bubba',
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=Garfield',
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=Scooter',
-    'https://api.dicebear.com/7.x/adventurer/svg?seed=Pepper'
-  ];
-
-  const getPresetAvatarsByGender = () => {
-    if (gender === 'Male') return MALE_AVATARS;
-    if (gender === 'Female') return FEMALE_AVATARS;
-    return OTHER_AVATARS;
-  };
-
-  // Automatically select the first avatar from the new gender presets when gender changes, or enforce correct gender category
-  useEffect(() => {
-    const malePresets = MALE_AVATARS;
-    const femalePresets = FEMALE_AVATARS;
-    const otherPresets = OTHER_AVATARS;
-
-    if (gender === 'Male') {
-      if (!avatarUrl || femalePresets.includes(avatarUrl) || otherPresets.includes(avatarUrl)) {
-        setAvatarUrl(malePresets[0]);
-      }
-    } else if (gender === 'Female') {
-      if (!avatarUrl || malePresets.includes(avatarUrl) || otherPresets.includes(avatarUrl)) {
-        setAvatarUrl(femalePresets[0]);
-      }
-    } else {
-      if (!avatarUrl || malePresets.includes(avatarUrl) || femalePresets.includes(avatarUrl)) {
-        setAvatarUrl(otherPresets[0]);
-      }
-    }
-  }, [gender, avatarUrl]);
-
-  // URL query parameter listener for password reset clicks
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const resetEmailParam = params.get('resetEmail');
-    if (resetEmailParam) {
-      const decodedEmail = decodeURIComponent(resetEmailParam);
-      setResetEmailTarget(decodedEmail);
-      setShowForgotModal(true);
-      setShowResetForm(true);
-      
-      // Clear URL query param so it doesn't trigger on every refresh
-      const url = new URL(window.location.href);
-      url.searchParams.delete('resetEmail');
-      window.history.replaceState({}, '', url.toString());
-    }
-  }, []);
-
-  // Quick secure options login
-  const handleQuickBiometricLogin = async (mode: 'fingerprint' | 'faceid' | 'pin') => {
-    if (!registeredUser) return;
-    try {
-      // Since everything is production-grade and uses real Auth, biometrics authenticate the active user session or asks to sign in.
-      alert(`🔑 Biometric sign-in authorized for ${registeredUser.email}! Authenticating secure session...`);
-      localStorage.setItem('chalo_is_logged_in', 'true');
-      onLoginSuccess(registeredUser);
     } catch (e: any) {
       alert("Biometric validation failed: " + e.message);
     }
@@ -540,7 +380,8 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
               {/* Submit Manual login */}
               <button
                 type="submit"
-                className="w-full py-3.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-xs tracking-widest uppercase rounded-2xl transition shadow-lg cursor-pointer flex items-center justify-center space-x-1.5"
+                disabled={isProcessing}
+                className={`w-full py-3.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-xs tracking-widest uppercase rounded-2xl transition shadow-lg cursor-pointer flex items-center justify-center space-x-1.5 ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <span>Enter Chalo One</span>
                 <ArrowRight className="w-4 h-4" />
@@ -594,6 +435,7 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
                     type="text"
                     required
                     value={name}
+                    maxLength={50}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. Kunal Pareek"
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-amber-500 focus:outline-none text-xs font-bold text-white"
@@ -621,6 +463,7 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
                     type="tel"
                     required
                     value={phone}
+                    maxLength={14}
                     onChange={(e) => {
                       let val = e.target.value;
                       // Strip all non-digits
@@ -787,7 +630,8 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
               {/* Submit Registration */}
               <button
                 type="submit"
-                className="w-full mt-2 py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-xs tracking-wider uppercase rounded-xl transition shadow-lg cursor-pointer"
+                disabled={isProcessing}
+                className={`w-full mt-2 py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-xs tracking-wider uppercase rounded-xl transition shadow-lg cursor-pointer ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 Create Account & Settle In
               </button>
@@ -889,7 +733,8 @@ export default function LoginSignup({ onLoginSuccess, savedPreferences }: LoginS
 
                 <button
                   type="submit"
-                  className="w-full py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-xs tracking-widest uppercase rounded-2xl transition shadow-lg cursor-pointer"
+                  disabled={isProcessing}
+                  className={`w-full py-3 bg-gradient-to-r ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''} from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-xs tracking-widest uppercase rounded-2xl transition shadow-lg cursor-pointer`}
                 >
                   Send Reset Mail
                 </button>

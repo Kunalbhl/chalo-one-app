@@ -1,0 +1,24 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/{folder}/{fileName} {
+      // Allow read if owner, allow write if owner and payload is under 10MB
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write: if false; // Only admin can write to public
+    }
+  }
+}

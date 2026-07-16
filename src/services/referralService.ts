@@ -65,12 +65,7 @@ export const ReferralService = {
       await WalletService.rewardPoints(referrerUid, 4000, `Referral bonus for inviting ${newUserName}`);
 
       // 4. Notify referrer
-      await NotificationService.addNotification(
-        referrerUid,
-        'Referral Bonus Earned! 🎉',
-        `Your friend ${newUserName} has registered using your link. 4,000 points added to your wallet!`,
-        'wallet'
-      );
+      await NotificationService.notifyReferralJoined(referrerUid, newUserName, 4000);
     } catch (e) {
       console.error("Failed to reward referrer:", e);
     }

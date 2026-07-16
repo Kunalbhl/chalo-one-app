@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import nodemailer from "nodemailer";
+import Razorpay from "razorpay";
+import crypto from "crypto";
 
 dotenv.config();
 
@@ -299,6 +301,60 @@ async function startServer() {
       status: "Securely Connected",
       portalUrl: "https://members.cj.com/member/publisher/onboarding.cj"
     });
+  });
+
+
+  // Razorpay Integration
+  const rzpInstance = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_demo12345',
+    key_secret: process.env.RAZORPAY_KEY_SECRET || 'secret_demo12345',
+  });
+
+  app.post("/api/payments/create-order", async (req, res) => {
+    try {
+      const { amount, receipt, notes } = req.body;
+      const options = {
+        amount: Math.round(amount * 100), // amount in smallest currency unit
+        currency: "INR",
+        receipt: receipt,
+        notes: { description: notes || "" }
+      };
+      
+      const order = await rzpInstance.orders.create(options);
+      return res.json({
+        id: order.id,
+        amount: order.amount,
+        currency: order.currency,
+        keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_demo12345'
+      });
+    } catch (err: any) {
+      console.error("Razorpay Order Creation Error:", err);
+      return res.status(500).json({ error: err.message || "Failed to create order" });
+    }
+  });
+
+  app.post("/api/payments/verify", (req, res) => {
+    try {
+      const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+      const keySecret = process.env.RAZORPAY_KEY_SECRET || 'secret_demo12345';
+      
+      const hmac = crypto.createHmac('sha256', keySecret);
+      hmac.update(razorpay_order_id + "|" + razorpay_payment_id);
+      const generated_signature = hmac.digest('hex');
+
+      if (generated_signature === razorpay_signature) {
+        return res.json({ success: true, message: "Payment verified successfully" });
+      } else {
+        // As a fallback for demo mode if using test keys without real SDK
+        if (keySecret === 'secret_demo12345' && razorpay_signature === 'demo_signature') {
+           return res.json({ success: true, message: "Payment verified successfully (Demo)" });
+        }
+        return res.status(400).json({ success: false, message: "Invalid signature" });
+      }
+    } catch (err: any) {
+      console.error("Razorpay Verification Error:", err);
+      return res.status(500).json({ error: err.message || "Failed to verify payment" });
+    }
   });
 
 

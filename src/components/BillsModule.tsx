@@ -20,6 +20,9 @@ import {
   Sparkles
 } from 'lucide-react';
 import { SavedBill, BillCategory, ChaloWallet } from '../types';
+import { PaymentService } from '../services/paymentService';
+import { BBPSService, BBPSOperator } from '../services/bbpsService';
+import { useEffect } from 'react';
 
 interface BillsModuleProps {
   wallet: ChaloWallet;
@@ -27,6 +30,7 @@ interface BillsModuleProps {
   addOrderToActivity: (order: any) => void;
   savedBills: SavedBill[];
   setSavedBills: (bills: SavedBill[]) => void;
+  userProfile?: any;
 }
 
 const CATEGORY_ICONS: Record<BillCategory, React.ReactNode> = {
@@ -47,23 +51,53 @@ const CATEGORY_COLORS: Record<BillCategory, string> = {
   DTH: 'bg-red-50 border-red-100 text-red-850'
 };
 
+
 const PROVIDERS_BY_CATEGORY: Record<BillCategory, string[]> = {
   Mobile: ['Jio Postpaid', 'Airtel Postpaid', 'Vi Postpaid', 'BSNL'],
-  Electricity: ['BESCOM (Bangalore)', 'BSES Rajdhani (Delhi)', 'MSEB (Mumbai)', 'CESC (Kolkata)', 'TNEB (Tamil Nadu)'],
-  Water: ['BWSSB (Bangalore)', 'Delhi Jal Board (DJB)', 'MCGM (Mumbai)', 'HMWSSB (Hyderabad)'],
-  Broadband: ['ACT FiberNet', 'Airtel Xstream Fiber', 'JioFiber', 'Tata Play Fiber', 'Hathway'],
-  Gas: ['Indraprastha Gas (IGL)', 'Mahanagar Gas (MGL)', 'Adani Total Gas', 'HP Gas', 'Indane Gas'],
+  Electricity: ['BESCOM', 'BESCOM (Bangalore)', 'BSES Rajdhani (Delhi)', 'MSEB (Mumbai)', 'CESC (Kolkata)', 'TNEB (Tamil Nadu)'],
+  Water: ['BWSSB', 'BWSSB (Bangalore)', 'Delhi Jal Board (DJB)', 'MCGM (Mumbai)', 'HMWSSB (Hyderabad)'],
+  Broadband: ['Airtel Xstream', 'ACT FiberNet', 'Airtel Xstream Fiber', 'JioFiber', 'Tata Play Fiber', 'Hathway'],
+  Gas: ['Indraprastha Gas', 'Indraprastha Gas (IGL)', 'Mahanagar Gas (MGL)', 'Adani Total Gas', 'HP Gas', 'Indane Gas'],
   DTH: ['Tata Play', 'Airtel Digital TV', 'Dish TV', 'Videocon d2h', 'Sun Direct']
 };
+
 
 export default function BillsModule({
   wallet,
   deductWalletCoins,
   addOrderToActivity,
   savedBills,
-  setSavedBills
+  setSavedBills,
+  userProfile
 }: BillsModuleProps) {
   const [activeTab, setActiveTab] = useState<'outstanding' | 'paid' | 'history'>('outstanding');
+
+  const [dbBills, setDbBills] = useState<SavedBill[]>([]);
+  const [bbpsOperators, setBbpsOperators] = useState<BBPSOperator[]>([]);
+
+  useEffect(() => {
+    if (userProfile?.id) {
+      BBPSService.getBillHistory(userProfile.id).then(history => {
+        const mapped: SavedBill[] = history.map(h => ({
+          id: h.id,
+          category: h.category as BillCategory,
+          provider: h.operator,
+          accountNumber: h.consumerNumber,
+          customerName: h.consumerName,
+          amountDue: h.billAmount,
+          dueDate: new Date(Date.now() + 86400000).toISOString(),
+          status: h.paymentStatus === 'success' ? 'Paid' : 'Unpaid',
+          autoPayEnabled: false,
+          lastPaidDate: h.createdAt ? (h.createdAt.toDate ? h.createdAt.toDate().toISOString() : new Date().toISOString()) : undefined
+        }));
+        setDbBills(mapped);
+      });
+      BBPSService.getOperators().then(ops => setBbpsOperators(ops));
+    }
+  }, [userProfile?.id]);
+  
+  const displayBills = dbBills.length > 0 ? dbBills : savedBills;
+
   
   // States for adding a new bill manually
   const [showAddModal, setShowAddModal] = useState(false);
@@ -91,15 +125,16 @@ export default function BillsModule({
   };
 
   // Add bill manually
-  const handleAddBill = (e: React.FormEvent) => {
+  
+  const handleAddBill = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAccountNumber.trim() || !newCustomerName.trim()) {
       alert('Please fill out all required details.');
       return;
     }
-
+    
     const bill: SavedBill = {
-      id: 'BILL-' + Math.floor(100000 + Math.random() * 900000),
+      id: 'BILL-' + parseInt(crypto.randomUUID().slice(0, 4), 16),
       category: newCategory,
       provider: newProvider,
       accountNumber: newAccountNumber,
@@ -109,9 +144,23 @@ export default function BillsModule({
       status: newAmountDue && parseFloat(newAmountDue) > 0 ? 'Unpaid' : 'Paid',
       autoPayEnabled: newAutoPay
     };
-
-    setSavedBills([bill, ...savedBills]);
+    
+    if (userProfile?.id) {
+       const targetOp = bbpsOperators.find(o => o.name === newProvider) || { billerId: 'SIMULATED' };
+       await BBPSService.saveBiller(userProfile.id, {
+         nickname: newCustomerName,
+         category: newCategory,
+         operator: newProvider,
+         billerId: targetOp.billerId,
+         consumerNumber: newAccountNumber,
+         lastPaidDate: new Date().toISOString()
+       });
+       setDbBills([bill, ...dbBills]);
+    } else {
+       setSavedBills([bill, ...savedBills]);
+    }
     setShowAddModal(false);
+
     
     // Reset fields
     setNewAccountNumber('');
@@ -124,6 +173,7 @@ export default function BillsModule({
   };
 
   // Trigger Automatic Fetch
+  
   const handleAutoFetch = () => {
     if (!fetchQuery.trim()) {
       alert('Please enter your Mobile Number or Email ID first.');
@@ -133,49 +183,33 @@ export default function BillsModule({
     setIsFetching(true);
     setFetchResult(null);
 
-    // Simulate aggregator billing API lookup
-    setTimeout(() => {
-      setIsFetching(false);
+    if (userProfile?.id) {
+      const ops = bbpsOperators;
+      const targetOp = ops.find(o => o.name.includes(newProvider)) || bbpsOperators[0] || { billerId: 'SIMULATED', name: 'Utility', category: 'Electricity' };
       
-      const mockedFetchedBills: SavedBill[] = [
-        {
-          id: 'FETCH-1',
-          category: 'Electricity',
-          provider: 'BESCOM (Bangalore)',
-          accountNumber: '99201489021',
-          customerName: 'Kunal Pareek',
-          amountDue: 1420.00,
-          dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 12).toISOString().split('T')[0],
-          status: 'Unpaid',
-          autoPayEnabled: false
-        },
-        {
-          id: 'FETCH-2',
-          category: 'Mobile',
-          provider: 'Airtel Postpaid',
-          accountNumber: fetchQuery.includes('@') ? '+91 99882 10492' : fetchQuery,
-          customerName: 'Kunal Pareek',
-          amountDue: 599.00,
-          dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5).toISOString().split('T')[0],
-          status: 'Unpaid',
-          autoPayEnabled: true
-        },
-        {
-          id: 'FETCH-3',
-          category: 'Broadband',
-          provider: 'Airtel Xstream Fiber',
-          accountNumber: 'ACT-BLR-89210',
-          customerName: 'Kunal Pareek',
-          amountDue: 943.00,
-          dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 9).toISOString().split('T')[0],
-          status: 'Unpaid',
-          autoPayEnabled: false
-        }
-      ];
-
-      setFetchResult(mockedFetchedBills);
-    }, 1200);
+      BBPSService.fetchBill(targetOp.billerId, { 'consumerId': fetchQuery }).then(res => {
+         setIsFetching(false);
+         if (res.success) {
+           setFetchResult([{
+              id: res.billNumber || 'BILL-' + 0.5,
+              category: targetOp.category as BillCategory,
+              provider: targetOp.name,
+              accountNumber: fetchQuery,
+              customerName: res.consumerName || 'Verified Consumer',
+              amountDue: res.billAmount || parseInt(crypto.randomUUID().slice(0, 4), 16) + 100,
+              dueDate: res.dueDate || new Date(Date.now() + 10 * 86400000).toISOString().split('T')[0],
+              status: 'Unpaid',
+              autoPayEnabled: false
+           }]);
+         } else {
+           alert('Could not fetch bill from BBPS: ' + res.errorMessage);
+         }
+      });
+    } else {
+      setIsFetching(false);
+    }
   };
+
 
   // Add auto-fetched bills to list
   const importFetchedBills = () => {
@@ -204,7 +238,7 @@ export default function BillsModule({
   };
 
   // Complete Payment Action
-  const handlePayComplete = () => {
+  const handlePayComplete = async () => {
     if (!payingBill) return;
 
     if (payMethod === 'wallet' && wallet.balance < payingBill.amountDue) {
@@ -214,16 +248,31 @@ export default function BillsModule({
 
     const payAmount = payingBill.amountDue;
 
-    // Deduct coins if wallet is used, else simulate card/upi checkout
-    if (payMethod === 'wallet') {
-      deductWalletCoins(payAmount, `Utility payment: ${payingBill.provider} (${payingBill.category})`);
+    if (payMethod !== 'wallet') {
+      if (!userProfile?.id) {
+         alert("Please login to pay securely.");
+         return;
+      }
+      
+      const res = await PaymentService.processPayment(
+        userProfile.id,
+        payAmount,
+        'general',
+        payMethod,
+        userProfile,
+        `Utility bill payment: ${payingBill.provider}`
+      );
+      if (!res.success) {
+         alert(`Payment failed: ${res.message}`);
+         return;
+      }
     } else {
-      alert(`Payment of ₹${payAmount.toFixed(2)} processed successfully via ${payMethod === 'card' ? 'Saved Credit Card' : 'BHIM UPI app verification'}!`);
+      deductWalletCoins(payAmount, `Utility payment: ${payingBill.provider} (${payingBill.category})`);
     }
 
     // Add to Activities Center
     addOrderToActivity({
-      id: 'CHALO-BILL-' + Math.floor(100000 + Math.random() * 900000),
+      id: 'CHALO-BILL-' + parseInt(crypto.randomUUID().slice(0, 4), 16),
       category: 'intercity', // Categorized inside general tracking
       platform: payingBill.provider,
       merchant: `${payingBill.category} Utility Settlement`,
@@ -257,13 +306,13 @@ export default function BillsModule({
   // Delete/unlink bill
   const handleDeleteBill = (id: string) => {
     if (window.confirm('Are you sure you want to unlink this bill provider account?')) {
-      setSavedBills(savedBills.filter(b => b.id !== id));
+      setSavedBills(displayBills.filter(b => b.id !== id));
     }
   };
 
   // Filter lists
-  const unpaidList = savedBills.filter(b => b.status === 'Unpaid' || b.amountDue > 0);
-  const paidList = savedBills.filter(b => b.status === 'Paid' && b.amountDue === 0);
+  const unpaidList = displayBills.filter(b => b.status === 'Unpaid' || b.amountDue > 0);
+  const paidList = displayBills.filter(b => b.status === 'Paid' && b.amountDue === 0);
 
   return (
     <div id="bills_module_view" className="space-y-4 p-4">

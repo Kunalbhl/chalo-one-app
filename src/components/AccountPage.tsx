@@ -1,3 +1,8 @@
+import { LinkedAccountInstance } from '../services/linkedAccounts/LinkedAccountService';
+import { ProviderId } from '../models/UnifiedModels';
+import { safeStorage, safeSessionStorage } from '../utils/storage';
+import { AdminControlCenter } from './AdminControlCenter';
+import PartnerPortal from './PartnerPortal';
 import React, { useState, useEffect } from 'react';
 import HelpSupport from './HelpSupport';
 // @ts-ignore
@@ -11,53 +16,17 @@ import {
   BiometricLog, 
   ChaloWallet 
 } from '../types';
-import { FAQS } from '../data';
 import { db, auth } from '../firebase';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { updatePassword } from 'firebase/auth';
 import { FirestoreService } from '../services/firestoreService';
-import { 
-  Settings, 
-  Shield, 
-  MapPin, 
-  Search, 
-  User, 
-  Compass, 
-  HelpCircle, 
-  Mail, 
-  AlertCircle, 
-  ChevronDown, 
-  ChevronUp, 
-  Plus, 
-  Trash2, 
-  CheckCircle2, 
-  Fingerprint, 
-  Lock, 
-  Unlock, 
-  Eye, 
-  EyeOff, 
-  KeyRound,
-  ShieldCheck,
-  ShieldAlert,
-  Camera,
-  Clock,
-  UserCheck,
-  UserX,
-  X,
-  ArrowLeft,
-  ChevronRight,
-  CreditCard,
-  Coins,
-  Edit,
-  Save,
-  Check,
-  Globe,
-  RefreshCw,
-  Code,
-  Copy,
-  Link,
-  ArrowUpRight
-} from 'lucide-react';
+import { AuthService } from '../services/authService';
+import { NotificationService } from '../services/notificationService';
+import { PaymentService } from '../services/paymentService';
+import { LoyaltyGrowthService, MembershipPlan, UserMembership, UserNotification, SavedPaymentMethod, UserAddress } from '../services/loyaltyGrowthService';
+import { ChaloMemberships } from './ChaloMemberships';
+import { isSuperAdmin, hasRole, isAdmin, hasPermission } from '../security/rbac';
+import { Settings, Shield, MapPin, Search, User, Compass, HelpCircle, Mail, AlertCircle, ChevronDown, ChevronUp, Plus, Trash2, CheckCircle2, Fingerprint, Lock, Unlock, Eye, EyeOff, KeyRound, ShieldCheck, ShieldAlert, Camera, Clock, UserCheck, UserX, X, ArrowLeft, ChevronRight, CreditCard, Coins, Edit, Save, Check, Globe, RefreshCw, Code, Copy, Link, ArrowUpRight, Info } from 'lucide-react';
 
 const MOCK_ADDRESS_SUGGESTIONS = [
   "Prestige Tech Park, Outer Ring Road, Kadubeesanahalli, Bengaluru, Karnataka 560103",
@@ -146,10 +115,52 @@ export default function AccountPage({
 }: AccountPageProps) {
   // Navigation inside Account page
   const [activeSection, setActiveSection] = useState<
-    'main' | 'linked_accounts' | 'rules_prefs' | 'security_audit' | 'help_support' | 'payments' | 'saved_addresses' | 'edit_profile' | 'founder_affiliate' | 'change_password'
+    'main' | 'linked_accounts' | 'rules_prefs' | 'security_audit' | 'help_support' | 'payments' | 'saved_addresses' | 'edit_profile' | 'change_password' | 'admin_center' | 'partner_portal' | 'memberships'
   >('main');
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+    
+  const [linkedAccounts, setLinkedAccounts] = useState<any[]>([]);
+  useEffect(() => {
+    // We would use actual userId, for now using dummy user1
+    LinkedAccountInstance.getLinkedAccounts(userProfile?.id || 'guest').then(accounts => {
+      const formatted = ['swiggy', 'zomato', 'blinkit', 'zepto', 'bookingcom', 'agoda'].map(id => {
+        const acc = accounts.find(a => a.provider === id);
+        return {
+          id: id as ProviderId,
+          name: id.charAt(0).toUpperCase() + id.slice(1),
+          status: acc?.status === 'connected' ? 'connected' : 'not_connected',
+          color: id === 'swiggy' ? 'bg-orange-100 text-orange-600' : id === 'zomato' ? 'bg-red-100 text-red-600' : id === 'blinkit' ? 'bg-yellow-100 text-yellow-600' : 'bg-slate-100 text-slate-600',
+          icon: id.charAt(0).toUpperCase()
+        };
+      });
+      setLinkedAccounts(formatted);
+    });
+  }, []);
+
+  const handleLinkToggle = async (providerId: ProviderId, currentStatus: string) => {
+    if (currentStatus === 'connected') {
+      await LinkedAccountInstance.disconnectAccount(userProfile?.id || 'guest', providerId);
+    } else {
+      // Simulate OAuth / WebView login
+      await LinkedAccountInstance.linkAccount(userProfile?.id || 'guest', providerId, { providerUserId: 'mock_123', displayName: 'Chalo User' });
+    }
+    // Refresh
+    const accounts = await LinkedAccountInstance.getLinkedAccounts(userProfile?.id || 'guest');
+    const formatted = ['swiggy', 'zomato', 'blinkit', 'zepto', 'bookingcom', 'agoda'].map(id => {
+      const acc = accounts.find(a => a.provider === id);
+      return {
+        id: id as ProviderId,
+        name: id.charAt(0).toUpperCase() + id.slice(1),
+        status: acc?.status === 'connected' ? 'connected' : 'not_connected',
+        color: id === 'swiggy' ? 'bg-orange-100 text-orange-600' : id === 'zomato' ? 'bg-red-100 text-red-600' : id === 'blinkit' ? 'bg-yellow-100 text-yellow-600' : 'bg-slate-100 text-slate-600',
+        icon: id.charAt(0).toUpperCase()
+      };
+    });
+    setLinkedAccounts(formatted);
+  };
+
 
   // Phase-wise Local Config toggles state
   const [localFeatureToggles, setLocalFeatureToggles] = useState(() => {
@@ -193,6 +204,18 @@ export default function AccountPage({
   const [profileGender, setProfileGender] = useState<string>(userProfile.gender || 'Male');
   const [profileAvatarUrl, setProfileAvatarUrl] = useState<string>(userProfile.avatarUrl || '');
   const [profileSaveSuccess, setProfileSaveSuccess] = useState<boolean>(false);
+
+  // Sync editable profile fields whenever userProfile changes (e.g. loaded from Firestore)
+  React.useEffect(() => {
+    if (userProfile) {
+      setProfileName(userProfile.name || '');
+      setProfilePhone(userProfile.phone || '');
+      setProfileEmail(userProfile.email || '');
+      setProfileDob(userProfile.dob || '');
+      setProfileGender(userProfile.gender || 'Male');
+      setProfileAvatarUrl(userProfile.avatarUrl || userProfile.photoURL || '');
+    }
+  }, [userProfile]);
 
   // Preset Avatars by gender
   const MALE_AVATARS = [
@@ -327,26 +350,7 @@ export default function AccountPage({
   const [isFetchingCjData, setIsFetchingCjData] = useState<boolean>(false);
   const [isSyncingCjManual, setIsSyncingCjManual] = useState<boolean>(false);
 
-  React.useEffect(() => {
-    if (activeSection === 'founder_affiliate') {
-      setIsFetchingCjData(true);
-      fetch('/api/affiliate/config')
-        .then(res => res.json())
-        .then(data => setCjConfig(data))
-        .catch(err => console.error("Error loading CJ configuration:", err));
 
-      fetch('/api/affiliate/bookings')
-        .then(res => res.json())
-        .then(data => {
-          setCjBookingsList(data.bookings || []);
-          setIsFetchingCjData(false);
-        })
-        .catch(err => {
-          console.error("Error loading CJ bookings:", err);
-          setIsFetchingCjData(false);
-        });
-    }
-  }, [activeSection]);
 
   const [newPartnerCompany, setNewPartnerCompany] = useState<string>('');
   const [newPartnerDomain, setNewPartnerDomain] = useState<string>('');
@@ -380,37 +384,75 @@ export default function AccountPage({
   const [typedRedemptionPoints, setTypedRedemptionPoints] = useState<string>('');
 
   // Preferred platform selection states (one per category, remembered and synced)
-  const [prefRides, setPrefRides] = useState<string>(() => localStorage.getItem("chalo_pref_rides") || 'uber');
-  const [prefFood, setPrefFood] = useState<string>(() => localStorage.getItem("chalo_pref_food") || 'zomato');
-  const [prefMart, setPrefMart] = useState<string>(() => localStorage.getItem("chalo_pref_mart") || 'blinkit');
-  const [prefStays, setPrefStays] = useState<string>(() => localStorage.getItem("chalo_pref_stays") || 'makemytrip');
+  const [prefRides, setPrefRides] = useState<string>(() => safeStorage.getItem("chalo_pref_rides") || 'uber');
+  const [prefFood, setPrefFood] = useState<string>(() => safeStorage.getItem("chalo_pref_food") || 'zomato');
+  const [prefMart, setPrefMart] = useState<string>(() => safeStorage.getItem("chalo_pref_mart") || 'blinkit');
+  const [prefStays, setPrefStays] = useState<string>(() => safeStorage.getItem("chalo_pref_stays") || 'makemytrip');
 
   // Payment Management States
   const [txnFilter, setTxnFilter] = useState<'All' | 'Card' | 'Wallet' | 'UPI'>('All');
   const [savedCards, setSavedCards] = useState<any[]>(() => {
-    const saved = localStorage.getItem("chalo_saved_cards");
+    const saved = safeStorage.getItem("chalo_saved_cards");
     return saved ? JSON.parse(saved) : [];
   });
   const [savedUpis, setSavedUpis] = useState<any[]>(() => {
-    const saved = localStorage.getItem("chalo_saved_upis");
+    const saved = safeStorage.getItem("chalo_saved_upis");
     return saved ? JSON.parse(saved) : [];
   });
   const [savedWallets, setSavedWallets] = useState<any[]>(() => {
-    const saved = localStorage.getItem("chalo_saved_wallets");
+    const saved = safeStorage.getItem("chalo_saved_wallets");
     return saved ? JSON.parse(saved) : [];
   });
 
   React.useEffect(() => {
-    localStorage.setItem("chalo_saved_cards", JSON.stringify(savedCards));
+    safeStorage.setItem("chalo_saved_cards", JSON.stringify(savedCards));
   }, [savedCards]);
 
   React.useEffect(() => {
-    localStorage.setItem("chalo_saved_upis", JSON.stringify(savedUpis));
+    safeStorage.setItem("chalo_saved_upis", JSON.stringify(savedUpis));
   }, [savedUpis]);
 
   React.useEffect(() => {
-    localStorage.setItem("chalo_saved_wallets", JSON.stringify(savedWallets));
+    safeStorage.setItem("chalo_saved_wallets", JSON.stringify(savedWallets));
   }, [savedWallets]);
+
+
+  React.useEffect(() => {
+    if (userProfile?.id) {
+      LoyaltyGrowthService.getSavedPaymentMethods(userProfile.id).then(methods => {
+        const cards = methods
+          .filter(m => m.type === 'card')
+          .map(m => ({
+            id: m.id,
+            bank: m.provider.split(' ')[0] || 'SBI Bank',
+            type: m.provider,
+            number: m.label,
+            expiry: '11/30'
+          }));
+        const upis = methods
+          .filter(m => m.type === 'upi')
+          .map(m => ({
+            id: m.id,
+            upiId: m.label,
+            label: m.provider
+          }));
+        const wallets = methods
+          .filter(m => m.type === 'wallet')
+          .map(m => ({
+            id: m.id,
+            name: m.provider,
+            phone: m.label.replace(/\D/g, '') || '9876543210',
+            balance: 500
+          }));
+        
+        if (cards.length > 0) setSavedCards(cards);
+        if (upis.length > 0) setSavedUpis(upis);
+        if (wallets.length > 0) setSavedWallets(wallets);
+      }).catch(err => {
+        console.warn("Could not load payment methods from Firestore:", err);
+      });
+    }
+  }, [userProfile?.id]);
 
   // Form Adding Toggle States & Inputs
   const [addingMethodType, setAddingMethodType] = useState<'none' | 'card' | 'upi' | 'wallet'>('none');
@@ -439,10 +481,7 @@ export default function AccountPage({
     }
     setIsVerifying(true);
     setVerifyStep("Connecting to secure payment network...");
-    await new Promise(r => setTimeout(r, 600));
-    setVerifyStep("Detecting card network binomial prefixes...");
-    await new Promise(r => setTimeout(r, 500));
-
+ 
     // Auto-detect bank and type
     const lead = cleanNum.charAt(0);
     let cardType = 'Visa credit';
@@ -451,30 +490,37 @@ export default function AccountPage({
     else if (lead === '5') { cardType = 'Mastercard debit'; cardBank = 'ICICI'; }
     else if (lead === '6') { cardType = 'RuPay debit'; cardBank = 'Federal Bank'; }
     else if (lead === '3') { cardType = 'Amex elite'; cardBank = 'AmEx'; }
-
-    setVerifyStep(`Network parsed. Requesting secure bank authorize (${cardBank} secure portal)...`);
-    await new Promise(r => setTimeout(r, 700));
-    setVerifyStep(`OTP sent to standard holder number. Auto-verifying handshake...`);
-    await new Promise(r => setTimeout(r, 600));
-
+ 
     const lastFour = cleanNum.slice(-4);
     const newCard = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       bank: cardBank,
       type: cardType,
       number: `•••• •••• •••• ${lastFour}`,
       expiry: newCardExpiry || '11/30'
     };
 
-    setSavedCards([...savedCards, newCard]);
-    setIsVerifying(false);
-    setAddingMethodType('none');
-    setNewCardNumber('');
-    setNewCardExpiry('');
-    setNewCardCvv('');
-    alert(`Success! Card verified natively from ${cardBank} bank server and saved.`);
+    try {
+      await LoyaltyGrowthService.addSavedPaymentMethod(userProfile.id, {
+        type: 'card',
+        label: newCard.number,
+        isDefault: false,
+        provider: `${cardBank} ${cardType}`
+      });
+      setSavedCards([...savedCards, newCard]);
+      alert(`Success! Card verified natively from ${cardBank} bank server and saved.`);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to register payment card with secured cloud wallet.');
+    } finally {
+      setIsVerifying(false);
+      setAddingMethodType('none');
+      setNewCardNumber('');
+      setNewCardExpiry('');
+      setNewCardCvv('');
+    }
   };
-
+ 
   const handleAddUpi = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUpiId.includes('@')) {
@@ -483,26 +529,33 @@ export default function AccountPage({
     }
     setIsVerifying(true);
     setVerifyStep("Querying NPCI Central UPI servers...");
-    await new Promise(r => setTimeout(r, 700));
-    setVerifyStep("Resolving VPA mapping credentials with issuing bank handles...");
-    await new Promise(r => setTimeout(r, 600));
-    setVerifyStep("Handshake successful. Verified account name fits 'KUNAL PAREEK'...");
-    await new Promise(r => setTimeout(r, 500));
-
+ 
     const newUpi = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       upiId: newUpiId,
       label: newUpiLabel || 'Personal Account'
     };
 
-    setSavedUpis([...savedUpis, newUpi]);
-    setIsVerifying(false);
-    setAddingMethodType('none');
-    setNewUpiId('');
-    setNewUpiLabel('');
-    alert(`Success! NPCI Server validated VPA username: ${newUpiId}`);
+    try {
+      await LoyaltyGrowthService.addSavedPaymentMethod(userProfile.id, {
+        type: 'upi',
+        label: newUpi.upiId,
+        isDefault: false,
+        provider: newUpi.label
+      });
+      setSavedUpis([...savedUpis, newUpi]);
+      alert(`Success! NPCI Server validated VPA username: ${newUpiId}`);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to register UPI identifier.');
+    } finally {
+      setIsVerifying(false);
+      setAddingMethodType('none');
+      setNewUpiId('');
+      setNewUpiLabel('');
+    }
   };
-
+ 
   const handleLinkWallet = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newWalletPhone.length < 10) {
@@ -511,35 +564,42 @@ export default function AccountPage({
     }
     setIsVerifying(true);
     setVerifyStep(`Contacting ${selectedWalletName} API servers...`);
-    await new Promise(r => setTimeout(r, 600));
-    setVerifyStep("Sending simulated verification SMS...");
-    await new Promise(r => setTimeout(r, 700));
-
+ 
     const optCode = prompt(`A secure link confirmation code was sent to ${newWalletPhone}. Please enter the 4-digit code (e.g. 1234) to fully link:`);
     if (!optCode) {
       setIsVerifying(false);
       return;
     }
-
-    setVerifyStep(`Confirming mobile linkage with authorization tokens...`);
-    await new Promise(r => setTimeout(r, 500));
-
-    const mockBalance = Math.floor(200 + Math.random() * 1500);
+ 
     const newWallet = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       name: selectedWalletName,
       phone: newWalletPhone,
-      balance: mockBalance
+      balance: 0
     };
 
-    setSavedWallets([...savedWallets, newWallet]);
-    setIsVerifying(false);
-    setAddingMethodType('none');
-    setNewWalletPhone('');
-    alert(`Success! Linked ${selectedWalletName} Wallet with verified balance of ₹${mockBalance.toFixed(2)}`);
+    try {
+      await LoyaltyGrowthService.addSavedPaymentMethod(userProfile.id, {
+        type: 'wallet',
+        label: `Mobile Linked: ${newWalletPhone}`,
+        isDefault: false,
+        provider: selectedWalletName
+      });
+      setSavedWallets([...savedWallets, newWallet]);
+      alert(`Success! Linked ${selectedWalletName} Wallet`);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to link wallet registry.');
+    } finally {
+      setIsVerifying(false);
+      setAddingMethodType('none');
+      setNewWalletPhone('');
+    }
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
     e.preventDefault();
     const updatedProfile: UserProfile = {
       ...userProfile,
@@ -557,36 +617,80 @@ export default function AccountPage({
     setProfileSaveSuccess(true);
     setTimeout(() => setProfileSaveSuccess(false), 2500);
 
-    // Persist profile updates directly to Firebase database
+    // Persist profile updates directly to Firebase database securely
     try {
       if (userProfile?.id) {
-        await FirestoreService.setDocument('users', userProfile.id, updatedProfile);
-        console.log("Updated profile details synced to Firebase Firestore.");
+        await AuthService.updateProfileFields(userProfile.id, {
+          name: profileName,
+          phone: profilePhone,
+          dob: profileDob,
+          gender: profileGender,
+          avatarUrl: profileAvatarUrl,
+          photoURL: profileAvatarUrl
+        });
+        console.log("Updated profile details securely synced to Firebase Firestore.");
+        
+        // Trigger automated system event notification
+        await NotificationService.notifyProfileUpdated(userProfile.id);
       }
     } catch (err) {
       console.warn("Could not persist profile changes to Firebase Firestore:", err);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  const handleAddAddress = (e: React.FormEvent) => {
+  const handleAddAddress = async (e: React.FormEvent) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
     e.preventDefault();
-    if (!addressLine.trim()) return;
+    if (!addressLine.trim()) {
+      setIsProcessing(false);
+      return;
+    }
 
+    const newId = "ADR-" + parseInt(crypto.randomUUID().slice(0, 4), 16);
     const newAddr: Address = {
-      id: "ADDR-" + Math.floor(1000 + Math.random() * 9000),
+      id: newId,
       label: addressLabel,
       addressLine,
       landmark: addressLandmark || undefined
     };
 
-    setSavedAddresses([...savedAddresses, newAddr]);
-    setAddressLine('');
-    setAddressLandmark('');
-    alert('Comfort hotspot address successfully recorded!');
+    try {
+      const firestoreLabel = addressLabel === 'Home' ? 'home' : addressLabel === 'Work' ? 'work' : 'custom';
+      await LoyaltyGrowthService.saveUserAddress(userProfile.id, {
+        id: newId,
+        label: firestoreLabel,
+        customLabel: addressLabel === 'Other' ? 'Other' : undefined,
+        fullAddress: addressLine,
+        landmark: addressLandmark || undefined,
+        instructions: 'Default instruction',
+        coords: { lat: 28.4595, lng: 77.0266 },
+        isDefault: false
+      });
+
+      setSavedAddresses([...savedAddresses, newAddr]);
+      setAddressLine('');
+      setAddressLandmark('');
+      alert('Comfort hotspot address successfully recorded!');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save address to cloud registry.');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  const handleDeleteAddress = (id: string) => {
-    setSavedAddresses(savedAddresses.filter(addr => addr.id !== id));
+  const handleDeleteAddress = async (id: string) => {
+    if (!window.confirm("Are you sure you want to delete this saved hotspot address?")) return;
+    try {
+      await LoyaltyGrowthService.deleteUserAddress(id);
+      setSavedAddresses(savedAddresses.filter(addr => addr.id !== id));
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete address.');
+    }
   };
 
 
@@ -614,10 +718,11 @@ export default function AccountPage({
                activeSection === 'rules_prefs' ? '⚙️ APP PREFERENCES' :
                activeSection === 'security_audit' ? '🛡️ SHIELD SECURITY' :
                activeSection === 'payments' ? '💰 WALLET & PAYMENTS' :
+               activeSection === 'memberships' ? '👑 PREMIUM VIP MEMBERSHIPS' :
                activeSection === 'saved_addresses' ? '📍 SAVED SPOTS' :
                activeSection === 'help_support' ? '🛎️ SUPPORT DESK' :
                activeSection === 'edit_profile' ? '👤 EDIT PROFILE' :
-               activeSection === 'founder_affiliate' ? '🔌 PARTNER DESK' :
+               activeSection === 'admin_center' ? '🛡️ SUPER ADMIN CONTROL CENTER' :
                activeSection.replace('_', ' ').toUpperCase()}
             </span>
           </div>
@@ -723,6 +828,28 @@ export default function AccountPage({
                 <span>Edit Profile</span>
               </button>
             </div>
+            
+            {/* Profile Completion Indicator */}
+            {(() => {
+              const fields = [userProfile.name, userProfile.email, userProfile.phone, userProfile.dob, userProfile.gender, userProfile.avatarUrl];
+              const filled = fields.filter(f => f && String(f).trim() !== '').length;
+              const total = fields.length;
+              const percent = Math.round((filled / total) * 100);
+              return percent < 100 ? (
+                <div className="mt-3 bg-amber-50/50 p-2 rounded-xl border border-amber-200/50">
+                  <div className="flex justify-between text-[9px] font-mono font-bold text-amber-700 mb-1">
+                    <span>PROFILE COMPLETION</span>
+                    <span>{percent}%</span>
+                  </div>
+                  <div className="w-full bg-amber-100 rounded-full h-1.5 overflow-hidden">
+                    <div className="bg-amber-500 h-1.5 rounded-full" style={{ width: `${percent}%` }}></div>
+                  </div>
+                  <div className="text-[9px] text-amber-600 mt-1.5 font-medium">
+                    Missing fields: {['Name', 'Email', 'Phone', 'Date of Birth', 'Gender', 'Profile Photo'].filter((_, i) => !fields[i] || String(fields[i]).trim() === '').join(', ')}. Please update your profile.
+                  </div>
+                </div>
+              ) : null;
+            })()}
 
             {/* Profile fields details (regular display with DD-MM-YYYY Date of Birth format) */}
             <div className="pt-3.5 space-y-3.5 text-xs">
@@ -765,12 +892,18 @@ export default function AccountPage({
           {/* LIST OPTIONS AS SECTIONS TO TAP */}
           <div className="bg-white rounded-3xl border border-gray-150 shadow-xs divide-y divide-gray-100 overflow-hidden">
             {[
-              ...((userProfile.role === 'super_admin' || userProfile.role === 'affiliate_partner') ? [{
-                id: 'founder_affiliate',
-                title: userProfile.role === 'affiliate_partner' ? '🔌 Affiliate Partner Dashboard' : '👑 Founder Affiliate Program Suite',
-                desc: userProfile.role === 'affiliate_partner' ? 'Sync web booking parameters, get affiliate URLs, and track accrued referral fees' : 'Manage referral fee rates, affiliate links, and super admin analytics',
-                badge: userProfile.role === 'affiliate_partner' ? 'Partner Desk' : 'Super Admin'
+              ...(isSuperAdmin(userProfile) ? [{
+                id: 'admin_center',
+                title: '🛡️ Super Admin Control Center',
+                desc: 'Production Dashboard, User Management, Wallet Control, Analytics, System Config',
+                badge: 'Restricted'
               }] : []),
+              {
+                id: 'partner_portal',
+                title: '🤝 Merchant Partner Portal',
+                desc: 'Register business, manage products, view settlements and active orders',
+                badge: 'Enterprise Desk'
+              },
               {
                 id: 'linked_accounts',
                 title: '🔗 Linked Aggregator Accounts',
@@ -796,6 +929,12 @@ export default function AccountPage({
                 badge: '₹' + wallet.balance.toFixed(2)
               },
               {
+                id: 'memberships',
+                title: '👑 Chalo Premium VIP Memberships',
+                desc: 'Subscribe to Chalo Plus, Gold, or Platinum for free delivery and multiplier rewards',
+                badge: 'VIP Perks'
+              },
+              {
                 id: 'saved_addresses',
                 title: '📍 Saved Delivery Addresses',
                 desc: 'Manage frequent travel destinations pickup locations',
@@ -810,8 +949,6 @@ export default function AccountPage({
             ].filter(row => {
               // Hide payments if wallet is disabled
               if (row.id === 'payments' && localFeatureToggles.wallet === false) return false;
-              // Hide founder_affiliate for affiliate partners if referrals is disabled
-              if (row.id === 'founder_affiliate' && localFeatureToggles.referrals === false && userProfile.role !== 'super_admin') return false;
               return true;
             }).map(row => (
               <button
@@ -879,7 +1016,7 @@ export default function AccountPage({
                     prefState: prefRides,
                     setPref: (val: string) => {
                       setPrefRides(val);
-                      localStorage.setItem("chalo_pref_rides", val);
+                      safeStorage.setItem("chalo_pref_rides", val);
                       alert(`🚀 "${val.toUpperCase()}" is now set as your single preferred rides operator inside Chalo One super comparison search.`);
                     },
                     items: [
@@ -893,7 +1030,7 @@ export default function AccountPage({
                     prefState: prefFood,
                     setPref: (val: string) => {
                       setPrefFood(val);
-                      localStorage.setItem("chalo_pref_food", val);
+                      safeStorage.setItem("chalo_pref_food", val);
                       alert(`🍔 "${val.toUpperCase()}" is now set as your single preferred food node inside Chalo One comparison searches.`);
                     },
                     items: [
@@ -907,7 +1044,7 @@ export default function AccountPage({
                     prefState: prefMart,
                     setPref: (val: string) => {
                       setPrefMart(val);
-                      localStorage.setItem("chalo_pref_mart", val);
+                      safeStorage.setItem("chalo_pref_mart", val);
                       alert(`🛒 "${val.toUpperCase()}" is now set as your single preferred grocery delivery provider.`);
                     },
                     items: [
@@ -920,7 +1057,7 @@ export default function AccountPage({
                     prefState: prefStays,
                     setPref: (val: string) => {
                       setPrefStays(val);
-                      localStorage.setItem("chalo_pref_stays", val);
+                      safeStorage.setItem("chalo_pref_stays", val);
                       alert(`🏨 "${val.toUpperCase()}" is now set as your default holiday hotel provider.`);
                     },
                     items: [
@@ -1611,117 +1748,19 @@ export default function AccountPage({
             </div>
           )}
 
-          {/* C2. DEDICATED CHANGE PASSWORD PAGE */}
-          {activeSection === 'change_password' && (
-            <div className="bg-white p-5 rounded-3xl border border-gray-150 shadow-xs space-y-4 animate-fade-in" id="section_change_password">
-              <div className="flex items-center justify-between pb-2.5 border-b border-gray-100">
-                <div>
-                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest block">Update Account Password</h3>
-                  <p className="text-[10.5px] text-gray-400 mt-0.5 font-medium">
-                    Modify your password to secure your Chalo One wallet, travel history, and account credentials.
-                  </p>
-                </div>
-                <Lock className="w-5 h-5 text-amber-500 shrink-0" />
-              </div>
-
-              <form onSubmit={async (e) => {
-                e.preventDefault();
-                if (!currentPassword || !newPassword || !confirmPassword) {
-                  alert("Please enter all password fields.");
-                  return;
-                }
-                if (newPassword !== confirmPassword) {
-                  alert("❌ Password mismatch: New password and Confirm password do not match.");
-                  return;
-                }
-                if (newPassword.length < 6) {
-                  alert("❌ Password length: New password must be at least 6 characters long.");
-                  return;
-                }
-
-                // Verify with Firebase Authentication session
-                if (!auth.currentUser) {
-                  alert("❌ Session not found: Please sign in again.");
-                  return;
-                }
-
-                try {
-                  await updatePassword(auth.currentUser, newPassword);
-                  console.log("Password updated successfully in Firebase Auth.");
-                  alert("🎉 Success! Your password has been successfully updated via Secure Authentication.");
-                } catch (err: any) {
-                  alert("❌ Password update failed: " + err.message);
-                }
-
-                // Reset inputs and return to main account view
-                setCurrentPassword('');
-                setNewPassword('');
-                setConfirmPassword('');
-                setActiveSection('security_audit');
-              }} className="space-y-4 text-xs">
-                <div className="flex flex-col space-y-1">
-                  <label className="text-[9.5px] font-mono font-black uppercase text-gray-400 tracking-wider">Current Password</label>
-                  <input
-                    type="password"
-                    required
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="bg-gray-50 border border-gray-150 p-2.5 text-xs rounded-xl font-bold text-gray-800 outline-none focus:bg-white focus:ring-1 focus:ring-amber-500"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="flex flex-col space-y-1">
-                    <label className="text-[9.5px] font-mono font-black uppercase text-gray-400 tracking-wider">New Password</label>
-                    <input
-                      type="password"
-                      required
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="At least 6 characters"
-                      className="bg-gray-50 border border-gray-150 p-2.5 text-xs rounded-xl font-bold text-gray-800 outline-none focus:bg-white focus:ring-1 focus:ring-amber-500"
-                    />
-                  </div>
-                  <div className="flex flex-col space-y-1">
-                    <label className="text-[9.5px] font-mono font-black uppercase text-gray-400 tracking-wider">Confirm New Password</label>
-                    <input
-                      type="password"
-                      required
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="At least 6 characters"
-                      className="bg-gray-50 border border-gray-150 p-2.5 text-xs rounded-xl font-bold text-gray-800 outline-none focus:bg-white focus:ring-1 focus:ring-amber-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-2.5 pt-2">
-                  <button
-                    type="submit"
-                    className="flex-1 bg-slate-900 hover:bg-black text-white text-[10.5px] font-black uppercase py-3 rounded-xl transition cursor-pointer"
-                  >
-                    Update Secure Password
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCurrentPassword('');
-                      setNewPassword('');
-                      setConfirmPassword('');
-                      setActiveSection('security_audit');
-                    }}
-                    className="px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-800 text-[10.5px] font-black uppercase rounded-xl transition cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
+          {/* VIP MEMBERSHIPS SUB SECTION */}
+          {activeSection === 'memberships' && (
+            <div className="space-y-4" id="section_memberships">
+              <ChaloMemberships 
+                userProfile={userProfile} 
+                wallet={wallet} 
+                onRefreshWallet={() => addCoins(0)} 
+              />
             </div>
           )}
 
-          {/* D. PAYMENT METHODS & WALLET ASSETS */}
-          {activeSection === 'payments' && (
+          {/* C2. DEDICATED CHANGE PASSWORD PAGE */}
+                    {activeSection === 'payments' && (
             <div className="space-y-4 font-sans" id="section_payments">
               
               {/* WALLET BALANCE AND FUND LOADER */}
@@ -1760,11 +1799,25 @@ export default function AccountPage({
 
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       const val = parseFloat(topUpAmount);
                       if (isNaN(val) || val <= 0) return;
-                      addCoins(val);
-                      alert(`Successfully topped up ₹${val.toFixed(2)} into Chalo One Balance!`);
+                      
+                      const res = await PaymentService.processPayment(
+                        userProfile.id,
+                        val,
+                        'wallet_topup',
+                        'razorpay',
+                        userProfile,
+                        'Wallet Top-Up'
+                      );
+
+                      if (res.success) {
+                         addCoins(val); // this adds coins in UI/firestore
+                         alert(`Successfully topped up ₹${val.toFixed(2)} into Chalo One Balance via Razorpay!`);
+                      } else {
+                         alert(`Payment failed: ${res.message}`);
+                      }
                     }}
                     className="p-1 px-3 bg-white hover:bg-amber-50 text-amber-700 font-black text-[10px] uppercase rounded-lg transition"
                   >
@@ -2090,9 +2143,9 @@ export default function AccountPage({
 
                       if (txnFilter === 'Card') return isCard;
                       if (txnFilter === 'UPI') return isUPI;
-                      if (txnFilter === 'Chalo One Wallet' || txnFilter === 'Wallet') return isChalo;
-                      if (txnFilter === 'Paytm Wallet') return isPaytm;
-                      if (txnFilter === 'Amazon Pay') return isAmazon;
+                      if ((txnFilter as any) === 'Chalo One Wallet' || (txnFilter as any) === 'Wallet') return isChalo;
+                      if ((txnFilter as any) === 'Paytm Wallet') return isPaytm;
+                      if ((txnFilter as any) === 'Amazon Pay') return isAmazon;
                       return true;
                     })
                     .map(txn => {
@@ -2157,9 +2210,9 @@ export default function AccountPage({
 
                     if (txnFilter === 'Card') return isCard;
                     if (txnFilter === 'UPI') return isUPI;
-                    if (txnFilter === 'Chalo One Wallet') return isChalo;
-                    if (txnFilter === 'Paytm Wallet') return isPaytm;
-                    if (txnFilter === 'Amazon Pay') return isAmazon;
+                    if ((txnFilter as any) === 'Chalo One Wallet') return isChalo;
+                    if ((txnFilter as any) === 'Paytm Wallet') return isPaytm;
+                    if ((txnFilter as any) === 'Amazon Pay') return isAmazon;
                     return true;
                   }).length === 0 && (
                     <p className="p-4 text-center text-slate-450 italic text-[11px]">No transactions classified under your custom filters.</p>
@@ -2332,7 +2385,8 @@ export default function AccountPage({
 
                   <button
                     type="submit"
-                    className="w-full bg-slate-900 hover:bg-black text-white text-[11px] font-black uppercase py-2.5 rounded-xl transition cursor-pointer"
+                    disabled={isProcessing}
+                    className={`w-full bg-slate-900 hover:bg-black text-white text-[11px] font-black uppercase py-2.5 rounded-xl transition cursor-pointer ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     Add Hotspot Address
                   </button>
@@ -2341,6 +2395,49 @@ export default function AccountPage({
             </div>
           )}
 
+                    {/* F2. LINKED ACCOUNTS */}
+          {activeSection === 'linked_accounts' && (
+            <div className="space-y-4 animate-fade-in pb-20">
+              <div className="bg-white rounded-2xl p-4 border border-gray-150 shadow-xs">
+                <div className="flex items-center space-x-2 border-b border-gray-150 pb-3 mb-3">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                    <Link className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-gray-900 font-mono uppercase tracking-wider">Linked Accounts</h3>
+                    <p className="text-[10px] font-medium text-gray-500">Connect Swiggy, Zomato, Zepto & more</p>
+                  </div>
+                </div>
+                
+                <div className="space-y-3">
+                  {linkedAccounts.map(provider => (
+                    <div key={provider.id} className="flex items-center justify-between p-3 border border-gray-150 rounded-xl hover:bg-slate-50 transition">
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-lg ${provider.color}`}>
+                          {provider.icon}
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-gray-900">{provider.name}</div>
+                          <div className="text-[10px] text-gray-500">
+                            {provider.status === 'connected' ? 'Connected (Auto-Login Enabled)' : 'Not Connected'}
+                          </div>
+                        </div>
+                      </div>
+                      <button onClick={() => handleLinkToggle(provider.id as ProviderId, provider.status)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition ${provider.status === 'connected' ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-slate-900 text-white hover:bg-black'}`}>
+                        {provider.status === 'connected' ? 'Disconnect' : 'Connect'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="mt-4 p-3 bg-blue-50/50 rounded-xl border border-blue-100 flex items-start space-x-2">
+                  <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                  <p className="text-[10px] text-blue-800 font-medium">Connecting accounts allows Chalo One to place orders on your behalf using your official provider identity, applying your existing memberships and coupons automatically.</p>
+                </div>
+              </div>
+            </div>
+          )}
+          
           {/* F. HELP, SUPPORT AND FAQS */}
           {activeSection === 'help_support' && (
             <div className="space-y-4" id="section_help_support">
@@ -2429,6 +2526,7 @@ export default function AccountPage({
                       type="text"
                       required
                       value={profileName}
+                      maxLength={50}
                       onChange={(e) => setProfileName(e.target.value)}
                       className="bg-gray-50 border border-gray-150 p-2.5 text-xs rounded-xl font-bold text-gray-800 focus:bg-white focus:ring-1 focus:ring-indigo-500 outline-none"
                     />
@@ -2473,6 +2571,7 @@ export default function AccountPage({
                     <label className="text-[9.5px] font-mono font-black uppercase text-gray-400 tracking-wider">Date of Birth</label>
                     <input
                       type="date"
+                      max={new Date().toISOString().split('T')[0]}
                       required
                       value={profileDob}
                       onChange={(e) => setProfileDob(e.target.value)}
@@ -2497,7 +2596,8 @@ export default function AccountPage({
                 <div className="flex gap-2 pt-2">
                   <button
                     type="submit"
-                    className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-amber-950 font-black text-[11px] rounded-xl cursor-pointer transition uppercase font-mono tracking-wide shadow-xs"
+                    disabled={isProcessing}
+                    className={`flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-amber-950 font-black text-[11px] rounded-xl cursor-pointer transition uppercase font-mono tracking-wide shadow-xs ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     Save Changes & Sync 💾
                   </button>
@@ -2514,1418 +2614,18 @@ export default function AccountPage({
           )}
 
           {/* H. VIP FOUNDER AFFILIATE PROGRAM SUITE (SUPER ADMIN & AFFILIATE PARTNERS) */}
-          {activeSection === 'founder_affiliate' && (
-            <div className="bg-slate-900 text-white p-6 rounded-3xl border border-slate-850 shadow-2xl space-y-6 animate-fade-in" id="section_founder_affiliate">
-              
-              {/* Header */}
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-800">
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="bg-amber-400 text-slate-950 font-mono text-[9px] font-black px-2 py-0.5 rounded uppercase">
-                      {userProfile.role === 'super_admin' ? 'Super Admin VIP' : 'Affiliate Partner'}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Live Affiliate Desk</span>
-                  </div>
-                  <h3 className="text-lg font-display font-black text-white mt-1">
-                    {userProfile.role === 'super_admin' ? '👑 Chalo One Founder Affiliate Console' : '🔌 Chalo One Partner Affiliate Desk'}
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    {userProfile.role === 'super_admin' 
-                      ? 'Configure referral fee payouts, register/manage integration platforms, and track deep analytics.' 
-                      : 'Track web traffic logs, generate custom campaign referral URLs, and sync payout api parameters.'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveSection('main')}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white rounded-xl text-[10px] font-bold uppercase tracking-wider cursor-pointer transition"
-                >
-                  ◀ Back to Menu
-                </button>
-              </div>
-
-              {/* SECTION A: SUPER ADMIN DASHBOARD */}
-              {userProfile.role === 'super_admin' && (
-                <div className="space-y-6">
-
-                  {/* Category Selection Tabs / Control Panel Navigation */}
-                  <div className="bg-slate-900 border border-slate-800 p-2 rounded-3xl flex flex-wrap gap-2 shadow-inner">
-                    <button
-                      type="button"
-                      onClick={() => setActiveAdminTab('overview')}
-                      className={`flex-1 min-w-[125px] py-2.5 px-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer ${
-                        activeAdminTab === 'overview'
-                          ? 'bg-amber-400 text-slate-950 shadow-lg font-bold scale-[1.02]'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-                      }`}
-                    >
-                      <span>📊</span> Overview Desk
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveAdminTab('features')}
-                      className={`flex-1 min-w-[125px] py-2.5 px-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer ${
-                        activeAdminTab === 'features'
-                          ? 'bg-amber-400 text-slate-950 shadow-lg font-bold scale-[1.02]'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-                      }`}
-                    >
-                      <span>🛡️</span> Release Features
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveAdminTab('apis')}
-                      className={`flex-1 min-w-[125px] py-2.5 px-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer ${
-                        activeAdminTab === 'apis'
-                          ? 'bg-amber-400 text-slate-950 shadow-lg font-bold scale-[1.02]'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-                      }`}
-                    >
-                      <span>🔌</span> API Control
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveAdminTab('affiliates')}
-                      className={`flex-1 min-w-[125px] py-2.5 px-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer ${
-                        activeAdminTab === 'affiliates'
-                          ? 'bg-amber-400 text-slate-950 shadow-lg font-bold scale-[1.02]'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-                      }`}
-                    >
-                      <span>🤝</span> Affiliates Desk
-                    </button>
-                  </div>
-
-                  {/* CATEGORY 1: OVERVIEW DASHBOARD */}
-                  {activeAdminTab === 'overview' && (
-                    <div className="space-y-6 animate-fadeIn">
-                      
-                      {/* Top Welcome Title */}
-                      <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl flex items-center justify-between">
-                        <div>
-                          <h3 className="text-sm font-extrabold text-white flex items-center gap-2 uppercase tracking-wide font-display">
-                            👑 CHALO ONE SUPER ADMIN CONTROL PANEL
-                          </h3>
-                          <p className="text-[11px] text-slate-400 mt-0.5">Welcome, Kunal. Monitor phase-wise features, web scraping endpoints and commission revenues.</p>
-                        </div>
-                        <span className="bg-amber-400/10 border border-amber-400/20 text-amber-400 text-[10px] font-mono font-bold px-2.5 py-1 rounded-lg">
-                          SUPER_ADMIN MODE
-                        </span>
-                      </div>
-
-                      {/* Stat Bento Grid */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-slate-850 p-4 rounded-2xl border border-slate-800 space-y-1">
-                          <span className="text-[9px] text-slate-500 uppercase font-mono block">Feature Status</span>
-                          <span className="text-base font-black text-white block">Phase-wise Toggles</span>
-                          <div className="flex flex-wrap gap-1 mt-1.5">
-                            <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#permissions</span>
-                            <span className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#releases</span>
-                          </div>
-                        </div>
-                        <div className="bg-slate-850 p-4 rounded-2xl border border-slate-800 space-y-1">
-                          <span className="text-[9px] text-slate-500 uppercase font-mono block">Linked Scraping APIs</span>
-                          <span className="text-base font-black text-white block">{coreApisList.length} Connected</span>
-                          <div className="flex flex-wrap gap-1 mt-1.5">
-                            <span className="bg-amber-500/10 text-amber-400 border border-amber-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#connections</span>
-                            <span className="bg-blue-500/10 text-blue-400 border border-blue-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#endpoints</span>
-                          </div>
-                        </div>
-                        <div className="bg-slate-850 p-4 rounded-2xl border border-slate-800 space-y-1">
-                          <span className="text-[9px] text-slate-500 uppercase font-mono block">Referral Commission</span>
-                          <span className="text-base font-black text-white block">{globalCommissionRate}% Live</span>
-                          <div className="flex flex-wrap gap-1 mt-1.5">
-                            <span className="bg-rose-500/10 text-rose-400 border border-rose-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#referrals</span>
-                            <span className="bg-yellow-500/10 text-yellow-400 border border-yellow-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#payouts</span>
-                          </div>
-                        </div>
-                        <div className="bg-slate-850 p-4 rounded-2xl border border-slate-800 space-y-1">
-                          <span className="text-[9px] text-slate-500 uppercase font-mono block">Affiliate Platforms</span>
-                          <span className="text-base font-black text-white block">{affiliatesList.length} Active</span>
-                          <div className="flex flex-wrap gap-1 mt-1.5">
-                            <span className="bg-purple-500/10 text-purple-400 border border-purple-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#partners</span>
-                            <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-1.5 py-0.2 rounded font-mono text-[8px] font-bold">#revenue</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Detailed Category-wise Directory & Index */}
-                      <div className="bg-slate-900 p-5 rounded-3xl border border-slate-800 space-y-4">
-                        <div>
-                          <h4 className="text-xs font-black text-white uppercase tracking-wider font-display">
-                            📁 PLATFORM CATEGORIES DIRECTORY & MODULE REGISTRATION INDEX
-                          </h4>
-                          <p className="text-[10.5px] text-slate-400 mt-0.5">
-                            Access and configure each module in its dedicated sub-page console. Each module represents an active database state inside the Chalo system.
-                          </p>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          
-                          {/* Module Card 1 */}
-                          <div className="bg-slate-850/60 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between space-y-3.5 hover:border-slate-700 transition">
-                            <div className="space-y-1.5">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wide font-mono">Category: Platform Releases</span>
-                                <span className="text-[8px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-1.5 py-0.5 rounded font-mono">ACTIVE</span>
-                              </div>
-                              <h5 className="text-[11.5px] font-extrabold text-white uppercase tracking-tight">System Phase-wise Feature Permissions</h5>
-                              <p className="text-[10.5px] text-slate-400 leading-normal">
-                                Manage release toggles globally for local cabs, food delivery, stays, smart planner and payment billing programs.
-                              </p>
-                              <div className="flex flex-wrap gap-1 pt-1">
-                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#permissions</span>
-                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#releases</span>
-                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#system_toggles</span>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setActiveAdminTab('features')}
-                              className="w-full py-2 bg-slate-900 hover:bg-slate-950 text-white font-black text-[9.5px] uppercase tracking-wider rounded-xl transition cursor-pointer"
-                            >
-                              Configure Release Toggles ➔
-                            </button>
-                          </div>
-
-                          {/* Module Card 2 */}
-                          <div className="bg-slate-850/60 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between space-y-3.5 hover:border-slate-700 transition">
-                            <div className="space-y-1.5">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wide font-mono">Category: API & Webhooks</span>
-                                <span className="text-[8px] bg-blue-500/10 text-blue-400 border border-blue-500/25 px-1.5 py-0.5 rounded font-mono">{coreApisList.length} Connected</span>
-                              </div>
-                              <h5 className="text-[11.5px] font-extrabold text-white uppercase tracking-tight">Comparative Scraping API Center</h5>
-                              <p className="text-[10.5px] text-slate-400 leading-normal">
-                                Configure live scraping endpoints, client-authenticated secret keys, and database request synchronization models.
-                              </p>
-                              <div className="flex flex-wrap gap-1 pt-1">
-                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#endpoints</span>
-                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#connections</span>
-                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#auth_credentials</span>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setActiveAdminTab('apis')}
-                              className="w-full py-2 bg-slate-900 hover:bg-slate-950 text-white font-black text-[9.5px] uppercase tracking-wider rounded-xl transition cursor-pointer"
-                            >
-                              Configure API Center ➔
-                            </button>
-                          </div>
-
-                          {/* Module Card 3 */}
-                          <div className="bg-slate-850/60 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between space-y-3.5 hover:border-slate-700 transition">
-                            <div className="space-y-1.5">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wide font-mono">Category: API & Webhooks</span>
-                                <span className="text-[8px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-1.5 py-0.5 rounded font-mono">SMTP READY</span>
-                              </div>
-                              <h5 className="text-[11.5px] font-extrabold text-white uppercase tracking-tight">Live Email SMTP Dispatch Webhooks</h5>
-                              <p className="text-[10.5px] text-slate-400 leading-normal">
-                                Dispatch manual SMTP test signals, test transactional receipts, verify webhook authentication tokens and live logs.
-                              </p>
-                              <div className="flex flex-wrap gap-1 pt-1">
-                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#smtp_webhooks</span>
-                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#dispatch_testing</span>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setActiveAdminTab('apis')}
-                              className="w-full py-2 bg-slate-900 hover:bg-slate-950 text-white font-black text-[9.5px] uppercase tracking-wider rounded-xl transition cursor-pointer"
-                            >
-                              Dispatch SMTP Signals ➔
-                            </button>
-                          </div>
-
-                          {/* Module Card 4 */}
-                          <div className="bg-slate-850/60 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between space-y-3.5 hover:border-slate-700 transition">
-                            <div className="space-y-1.5">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wide font-mono">Category: Affiliate Programs</span>
-                                <span className="text-[8px] bg-purple-500/10 text-purple-400 border border-purple-500/25 px-1.5 py-0.5 rounded font-mono">WEBHOOK ACTIVE</span>
-                              </div>
-                              <h5 className="text-[11.5px] font-extrabold text-white uppercase tracking-tight">Booking.com Affiliate Suite</h5>
-                              <p className="text-[10.5px] text-slate-400 leading-normal">
-                                Monitor real-time Commission Junction (CJ) publisher sync, track checkout conversions, and verify linked guests.
-                              </p>
-                              <div className="flex flex-wrap gap-1 pt-1">
-                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#commissions</span>
-                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#booking_conversions</span>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setActiveAdminTab('affiliates')}
-                              className="w-full py-2 bg-slate-900 hover:bg-slate-950 text-white font-black text-[9.5px] uppercase tracking-wider rounded-xl transition cursor-pointer"
-                            >
-                              Open Booking Suite ➔
-                            </button>
-                          </div>
-
-                          {/* Module Card 5 */}
-                          <div className="bg-slate-850/60 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between space-y-3.5 hover:border-slate-700 transition col-span-1 md:col-span-2">
-                            <div className="space-y-1.5">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wide font-mono">Category: Affiliate Programs</span>
-                                <span className="text-[8px] bg-amber-500/10 text-amber-400 border border-amber-500/25 px-1.5 py-0.5 rounded font-mono">{affiliatesList.length} Partners</span>
-                              </div>
-                              <h5 className="text-[11.5px] font-extrabold text-white uppercase tracking-tight">Active Affiliate Partners Directory & Conversions</h5>
-                              <p className="text-[10.5px] text-slate-400 leading-normal">
-                                Register and provision external partner domains, track click ratios, adjust payout parameters and monitor live conversions.
-                              </p>
-                              <div className="flex flex-wrap gap-1 pt-1">
-                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#partners</span>
-                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#revenue_share</span>
-                                <span className="bg-slate-900 text-slate-400 font-mono text-[9px] px-2 py-0.5 rounded">#referrals</span>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setActiveAdminTab('affiliates')}
-                              className="w-full py-2 bg-slate-900 hover:bg-slate-950 text-white font-black text-[9.5px] uppercase tracking-wider rounded-xl transition cursor-pointer"
-                            >
-                              Open Partner Directory ➔
-                            </button>
-                          </div>
-
-                        </div>
-                      </div>
-
-                    </div>
-                  )}
-
-                  {/* CATEGORY 4: AFFILIATES & REVENUES PART A */}
-                  {activeAdminTab === 'affiliates' && (
-                    <div className="space-y-6 animate-fadeIn">
-                      <div className="flex items-center gap-2 bg-slate-900 px-4 py-2.5 rounded-2xl border border-slate-800 text-[10.5px] font-mono">
-                        <span className="text-slate-500 font-bold uppercase">Tags:</span>
-                        <span className="text-purple-400 font-bold">#commissions</span>
-                        <span className="text-emerald-400 font-bold">#payouts</span>
-                        <span className="text-rose-400 font-bold">#partners</span>
-                        <span className="text-yellow-400 font-bold">#booking_conversions</span>
-                        <span className="ml-auto text-[9px] bg-purple-500/15 text-purple-400 border border-purple-500/20 px-2 py-0.5 rounded uppercase font-black tracking-widest">
-                          Affiliate Desk
-                        </span>
-                      </div>
-                  
-                      {/* COMMISSION JUNCTION & BOOKING.COM INTEGRATION PANEL */}
-                  <div className="bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 p-6 rounded-3xl border border-amber-500/20 shadow-xl space-y-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 rounded-xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20">
-                          <span className="text-xl font-black text-blue-400">B.</span>
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-black text-white flex items-center gap-1.5 uppercase font-display">
-                            Booking.com Affiliate Suite
-                            <span className="text-[8px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-mono uppercase tracking-widest font-black">
-                              Live & Synced
-                            </span>
-                          </h4>
-                          <p className="text-[10.5px] text-slate-400">Integrated through Commission Junction (CJ) publisher network.</p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsSyncingCjManual(true);
-                            setTimeout(() => {
-                              setIsSyncingCjManual(false);
-                              alert("🟢 CJ Synchronization Complete!\n- Handshake validated with members.cj.com publisher portal\n- Credentials Verified: Kunalpareekusa@gmail.com\n- Sync status: All transactions uploaded and confirmed.");
-                            }, 2000);
-                          }}
-                          disabled={isSyncingCjManual}
-                          className="px-3.5 py-2 bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-500 hover:to-yellow-600 text-slate-950 font-black text-[9.5px] uppercase rounded-xl shadow-xs cursor-pointer transition flex items-center space-x-1.5"
-                        >
-                          {isSyncingCjManual ? (
-                            <>
-                              <span className="w-3 h-3 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></span>
-                              <span>Pinging Portal...</span>
-                            </>
-                          ) : (
-                            <span>⚡ Sync to members.cj.com</span>
-                          )}
-                        </button>
-                        <a
-                          href="https://members.cj.com/member/publisher/onboarding.cj"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3.5 py-2 bg-slate-800 hover:bg-slate-750 text-slate-200 hover:text-white rounded-xl text-[9.5px] font-black uppercase tracking-wider transition font-mono border border-slate-700"
-                        >
-                          Launch CJ Portal ↗
-                        </a>
-                      </div>
-                    </div>
-
-                    {/* Masked Credentials Block */}
-                    <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-800 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
-                      <div className="space-y-1">
-                        <span className="text-[8.5px] text-slate-500 uppercase tracking-widest font-black block">Affiliate Publisher Email</span>
-                        <span className="text-amber-400 font-bold block truncate">{cjConfig?.email || "Kunalpareekusa@gmail.com"}</span>
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[8.5px] text-slate-500 uppercase tracking-widest font-black block">Credential Key</span>
-                        <div className="flex items-center space-x-1">
-                          <span className="text-slate-400 font-bold block">{cjConfig?.passwordMask || "••••••••••••"}</span>
-                          <span className="text-[8px] bg-indigo-500/10 text-indigo-400 px-1.5 py-0.2 rounded uppercase border border-indigo-500/20">Securely Encrypted</span>
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[8.5px] text-slate-500 uppercase tracking-widest font-black block">Linked Program</span>
-                        <span className="text-blue-400 font-bold block">Booking.com Advertiser (ID: 418290)</span>
-                      </div>
-                    </div>
-
-                    {/* Bookings table */}
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center">
-                        <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest font-mono">Synced Booking.com Conversion History</h5>
-                        <span className="text-[9px] text-emerald-400 font-mono">Real-time CJ Webhook reporting</span>
-                      </div>
-
-                      {isFetchingCjData ? (
-                        <div className="p-8 text-center text-xs text-slate-500 font-mono">
-                          <span className="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin inline-block mr-2 align-middle"></span>
-                          Loading synced CJ tracking data...
-                        </div>
-                      ) : cjBookingsList.length === 0 ? (
-                        <div className="p-8 text-center text-xs text-slate-500 font-mono border border-dashed border-slate-800 rounded-2xl bg-slate-950/20">
-                          No Booking.com conversions logged yet. Go to Stays, select Booking.com, and book a room to trigger real-time sync.
-                        </div>
-                      ) : (
-                        <div className="overflow-x-auto border border-slate-800/60 rounded-2xl">
-                          <table className="w-full text-left border-collapse text-xs">
-                            <thead>
-                              <tr className="bg-slate-950/80 border-b border-slate-800 text-[8.5px] text-slate-500 uppercase tracking-widest font-mono">
-                                <th className="p-3">Track ID</th>
-                                <th className="p-3">Hotel Destination</th>
-                                <th className="p-3">Guest Name</th>
-                                <th className="p-3">Value</th>
-                                <th className="p-3">Fees (12%)</th>
-                                <th className="p-3">CJ Sync Status</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-800/40 text-slate-300 font-sans">
-                              {cjBookingsList.map((bk) => (
-                                <tr key={bk.id} className="hover:bg-slate-850/40 transition-colors">
-                                  <td className="p-3 font-mono font-bold text-amber-400 text-[10.5px]">{bk.id}</td>
-                                  <td className="p-3 font-extrabold text-white">{bk.hotelName}</td>
-                                  <td className="p-3 text-slate-300">{bk.guestName}</td>
-                                  <td className="p-3 font-mono">₹{bk.amount.toLocaleString()}</td>
-                                  <td className="p-3 font-mono text-emerald-400 font-bold">₹{bk.commission.toLocaleString()}</td>
-                                  <td className="p-3">
-                                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px] font-bold font-mono">
-                                      <span>●</span>
-                                      <span>{bk.status}</span>
-                                    </span>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {/* Global Commission Controller */}
-                  <div className="bg-slate-850 p-5 rounded-2xl border border-slate-800 space-y-4">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">Global Referral Fee Payout Rate</h4>
-                        <p className="text-[10.5px] text-slate-400">Controls the active default referral fees on booking transactions.</p>
-                      </div>
-                      <span className="text-xl font-mono font-black text-white bg-slate-900 border border-slate-750 px-3 py-1 rounded-lg">
-                        {globalCommissionRate}%
-                      </span>
-                    </div>
-                    <div className="space-y-1">
-                      <input 
-                        type="range" 
-                        min="1" 
-                        max="30" 
-                        value={globalCommissionRate}
-                        className="w-full accent-amber-400 cursor-pointer" 
-                        onChange={(e) => setGlobalCommissionRate(parseInt(e.target.value))}
-                      />
-                      <div className="flex justify-between text-[9px] text-slate-500 font-mono">
-                        <span>1% (Minimum)</span>
-                        <span className="text-amber-500 font-bold">{globalCommissionRate}% Commission Live</span>
-                        <span>30% (VIP Maximum)</span>
-                      </div>
-                    </div>
-                  </div>
-                  </div>
-                  )}
-
-                  {/* CATEGORY 3: API & WEBHOOK INTEGRATIONS */}
-                  {activeAdminTab === 'apis' && (
-                    <div className="space-y-6 animate-fadeIn">
-                      
-                      {/* Tags Bar */}
-                      <div className="flex items-center gap-2 bg-slate-900 px-4 py-2.5 rounded-2xl border border-slate-800 text-[10.5px] font-mono">
-                        <span className="text-slate-500 font-bold uppercase">Tags:</span>
-                        <span className="text-blue-400 font-bold">#endpoints</span>
-                        <span className="text-amber-400 font-bold">#connections</span>
-                        <span className="text-teal-400 font-bold">#smtp_webhooks</span>
-                        <span className="text-rose-400 font-bold">#auth_credentials</span>
-                        <span className="ml-auto text-[9px] bg-blue-500/15 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded uppercase font-black tracking-widest">
-                          Web Scrapers
-                        </span>
-                      </div>
-
-                  {/* MASTER API ENDPOINTS DEFINITIONS */}
-                  <div className="bg-slate-850 p-5 rounded-2xl border border-slate-800 space-y-5">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-800 pb-3">
-                      <div>
-                        <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center gap-1">
-                          <Settings className="w-4 h-4 text-amber-400 animate-spin" />
-                          Complete API & Integrations Control Center
-                        </h4>
-                        <p className="text-[10.5px] text-slate-400">Configure comparative scraping APIs, credentials, and live production endpoints.</p>
-                      </div>
-                      
-                      <button
-                        type="button"
-                        onClick={() => setShowAddApiForm(!showAddApiForm)}
-                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[9.5px] font-bold uppercase tracking-wider cursor-pointer self-start"
-                      >
-                        {showAddApiForm ? '✕ Close Form' : '➕ Link New API'}
-                      </button>
-                    </div>
-
-                    {/* Webhook API credentials fields */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block font-mono">GLOBAL_WEBHOOK_URL (chaloone.com)</label>
-                        <input 
-                          type="text" 
-                          value={emailWebhookApi}
-                          onChange={(e) => setEmailWebhookApi(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-750 p-3 rounded-xl text-xs font-mono text-slate-200 outline-none focus:ring-1 focus:ring-amber-400" 
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block font-mono">PRODUCTION_API_TOKEN</label>
-                        <input 
-                          type="text" 
-                          value={emailApiToken}
-                          onChange={(e) => setEmailApiToken(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-750 p-3 rounded-xl text-xs font-mono text-slate-200 outline-none focus:ring-1 focus:ring-amber-400" 
-                        />
-                      </div>
-                    </div>
-
-                    {/* Form to link/register a brand new API */}
-                    {showAddApiForm && (
-                      <div className="bg-slate-900 p-4 rounded-xl border border-slate-750 space-y-3 animate-fade-in">
-                        <span className="text-[9.5px] text-amber-400 font-mono font-black uppercase tracking-wider block border-b border-slate-800 pb-1.5">Link Custom Third-Party API wrapper</span>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                          <div className="space-y-1">
-                            <label className="text-[8.5px] text-slate-400 uppercase font-mono">API Service Name</label>
-                            <input 
-                              type="text"
-                              placeholder="e.g. Ola Cabs Comparative Scraper API"
-                              value={newApiName}
-                              onChange={(e) => setNewApiName(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-850 p-2.5 rounded-lg font-bold text-white outline-none focus:border-amber-400 text-xs"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[8.5px] text-slate-400 uppercase font-mono">GCP/AWS Integration Service Purpose</label>
-                            <input 
-                              type="text"
-                              placeholder="e.g. Scrapes Ola mini/prime prices for rides tab compare"
-                              value={newApiService}
-                              onChange={(e) => setNewApiService(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-850 p-2.5 rounded-lg text-white outline-none focus:border-amber-400 text-xs"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[8.5px] text-slate-400 uppercase font-mono">Integration API Key (Linked credentials)</label>
-                            <input 
-                              type="text"
-                              placeholder="e.g. AIzaSyOLA_ChaloOne_ProdSecret"
-                              value={newApiKey}
-                              onChange={(e) => setNewApiKey(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-850 p-2.5 rounded-lg font-mono text-white outline-none focus:border-amber-400 text-xs"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[8.5px] text-slate-400 uppercase font-mono">Endpoint Base URL (For backend route proxying)</label>
-                            <input 
-                              type="text"
-                              placeholder="e.g. https://api.olacabs.com/v3"
-                              value={newApiEndpoint}
-                              onChange={(e) => setNewApiEndpoint(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-850 p-2.5 rounded-lg font-mono text-white outline-none focus:border-amber-400 text-xs"
-                            />
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!newApiName.trim() || !newApiService.trim() || !newApiKey.trim() || !newApiEndpoint.trim()) {
-                              alert('Please fill out all fields to successfully register the API connection.');
-                              return;
-                            }
-                            const newApi = {
-                              id: 'api_' + Math.floor(100 + Math.random() * 900),
-                              name: newApiName,
-                              service: newApiService,
-                              status: 'Linked',
-                              apiKey: newApiKey,
-                              endpoint: newApiEndpoint,
-                              isTesting: false
-                            };
-                            setCoreApisList([...coreApisList, newApi]);
-                            setNewApiName('');
-                            setNewApiService('');
-                            setNewApiKey('');
-                            setNewApiEndpoint('');
-                            setShowAddApiForm(false);
-                            alert(`🎉 Success! ${newApiName} is registered. Click "Sync and Compile Backend Code" to persist it.`);
-                          }}
-                          className="px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-[10px] tracking-wider uppercase rounded-lg shadow cursor-pointer transition-all"
-                        >
-                          Confirm & Link Integration
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Tabular Showcase of Linked and Desired APIs */}
-                    <div className="space-y-3">
-                      <span className="text-[9.5px] text-slate-500 font-mono font-black uppercase tracking-wider block">Currently Linked Comparative Scraping APIs</span>
-                      
-                      <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                        {coreApisList.map((api) => (
-                          <div key={api.id} className="bg-slate-900 p-3.5 rounded-xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-                            <div className="space-y-1 flex-1">
-                              <div className="flex items-center space-x-2">
-                                <span className="font-extrabold text-white text-[12px]">{api.name}</span>
-                                <span className={`text-[8px] font-mono font-black px-1.5 py-0.2 rounded-full uppercase ${
-                                  api.status === 'Linked' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
-                                }`}>
-                                  ● {api.status}
-                                </span>
-                              </div>
-                              <p className="text-[10.5px] text-slate-400 leading-relaxed font-medium">{api.service}</p>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 font-mono text-[9px] text-slate-500">
-                                <span>🔑 Key: <strong className="text-slate-300 font-bold">{api.apiKey}</strong></span>
-                                <span>🔗 URL: <strong className="text-slate-300 font-bold">{api.endpoint}</strong></span>
-                              </div>
-                            </div>
-
-                            {/* Direct interactions inside the admin API center */}
-                            <div className="flex items-center gap-1.5 shrink-0 self-end md:self-center">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  // Trigger mock test
-                                  setCoreApisList(prev => prev.map(a => a.id === api.id ? { ...a, isTesting: true } : a));
-                                  setTimeout(() => {
-                                    setCoreApisList(prev => prev.map(a => a.id === api.id ? { ...a, isTesting: false } : a));
-                                    alert(`🟢 Connection verified for ${api.name}!\n- Endpoint ping status: 200 OK (0.003s response time)\n- API Credentials: Valid\n- Production Tunnel: Secure`);
-                                  }, 1500);
-                                }}
-                                className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded-md text-[9px] font-extrabold uppercase font-mono tracking-wider transition cursor-pointer"
-                              >
-                                {api.isTesting ? 'Pinging...' : '⚡ Test API'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setCoreApisList(prev => prev.map(a => a.id === api.id ? { ...a, status: a.status === 'Linked' ? 'Unlinked' : 'Linked' } : a));
-                                }}
-                                className={`px-2.5 py-1.5 rounded-md text-[9px] font-extrabold uppercase font-mono tracking-wider transition cursor-pointer ${
-                                  api.status === 'Linked' ? 'bg-rose-500/15 text-rose-400 hover:bg-rose-500/25' : 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25'
-                                }`}
-                              >
-                                {api.status === 'Linked' ? '🔌 Unlink' : '🔗 Link'}
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* COMPILING & SAVING CODE TO BACKEND PROD SERVER */}
-                    <div className="border-t border-slate-800 pt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <div>
-                        <span className="text-[10px] text-emerald-400 font-bold font-mono block">✓ Production Environment Active (chaloone.com domain)</span>
-                        <p className="text-[9.5px] text-slate-500">Compiles the wrapper logic and restarts the dev/prod server with updated parameters.</p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setBackendSyncing(true);
-                          setBackendSyncSuccess(false);
-                          setTimeout(() => {
-                            setBackendSyncing(false);
-                            setBackendSyncSuccess(true);
-                            alert(`🚀 Production Build Success!\n- Compiled backend TypeScript wrappers\n- Re-bundled server.ts to dist/server.cjs via esbuild\n- Deployed production artifact to Cloud Run container ingress\n- Ingress Domain linked: https://chaloone.com`);
-                          }, 2500);
-                        }}
-                        disabled={backendSyncing}
-                        className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:from-emerald-800 disabled:to-emerald-900 text-white font-black text-[10px] tracking-wider uppercase rounded-xl shadow-md cursor-pointer transition flex items-center space-x-2"
-                      >
-                        {backendSyncing ? (
-                          <>
-                            <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                            <span>Compiling Code...</span>
-                          </>
-                        ) : (
-                          <span>⚡ Save & Sync Backend Code</span>
-                        )}
-                      </button>
-                    </div>
-
-                    {backendSyncSuccess && (
-                      <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-center text-[11px] font-mono text-emerald-400 animate-fade-in">
-                        ✓ SUCCESS: API credentials updated! server.ts compiled into dist/server.cjs & deployed to container at chaloone.com successfully.
-                      </div>
-                    )}
-                  </div>
-                  </div>
-                  )}
-
-                  {/* CATEGORY 4: AFFILIATES & REVENUES PART B */}
-                  {activeAdminTab === 'affiliates' && (
-                    <div className="space-y-6 animate-fadeIn">
-
-                  {/* ACTIVE PARTNERS PLATFORMS DIRECTORY */}
-                  <div className="bg-slate-850 p-5 rounded-2xl border border-slate-800 space-y-4">
-                    <div className="flex justify-between items-center pb-2 border-b border-slate-800">
-                      <div>
-                        <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">Active Affiliate Partners Directory</h4>
-                        <p className="text-[10.5px] text-slate-400">Currently registered platform networks earning referral fees on Chalo One.</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setShowAddPartnerForm(!showAddPartnerForm)}
-                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-white rounded-lg text-[9.5px] font-bold uppercase tracking-wider cursor-pointer"
-                      >
-                        {showAddPartnerForm ? '✕ Close Form' : '➕ Add Partner'}
-                      </button>
-                    </div>
-
-                    {/* Form to add a partner */}
-                    {showAddPartnerForm && (
-                      <div className="bg-slate-900 p-4 rounded-xl border border-slate-750 space-y-3">
-                        <span className="text-[9px] text-amber-400 font-mono font-black uppercase tracking-wider block">Add New Platform Network</span>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                          <div className="space-y-1">
-                            <label className="text-[8.5px] text-slate-400 uppercase font-mono">Platform/Company Name</label>
-                            <input 
-                              type="text"
-                              placeholder="e.g. FlightRadar Hub"
-                              value={newPartnerCompany}
-                              onChange={(e) => setNewPartnerCompany(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-800 p-2 rounded-lg font-bold text-white outline-none focus:border-amber-400"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[8.5px] text-slate-400 uppercase font-mono">Web Domain</label>
-                            <input 
-                              type="text"
-                              placeholder="e.g. flightradar.com"
-                              value={newPartnerDomain}
-                              onChange={(e) => setNewPartnerDomain(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-800 p-2 rounded-lg font-mono text-white outline-none focus:border-amber-400"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[8.5px] text-slate-400 uppercase font-mono">Commission Rate (%)</label>
-                            <input 
-                              type="number"
-                              min="1"
-                              max="30"
-                              value={newPartnerRate}
-                              onChange={(e) => setNewPartnerRate(parseInt(e.target.value) || 12)}
-                              className="w-full bg-slate-950 border border-slate-800 p-2 rounded-lg font-bold text-white outline-none focus:border-amber-400"
-                            />
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!newPartnerCompany.trim() || !newPartnerDomain.trim()) {
-                              alert('Please fill out the Platform Name and Domain.');
-                              return;
-                            }
-                            const newP = {
-                              id: 'partner_' + Math.floor(100 + Math.random() * 900),
-                              companyName: newPartnerCompany,
-                              domain: newPartnerDomain,
-                              clicks: 0,
-                              conversions: 0,
-                              revenue: 0.00,
-                              commissionRate: newPartnerRate,
-                              isActivated: true,
-                              apiToken: 'token_' + Math.floor(1000 + Math.random() * 9000),
-                              webhookUrl: `https://${newPartnerDomain}/webhooks/chalo`
-                            };
-                            setAffiliatesList([...affiliatesList, newP]);
-                            setNewPartnerCompany('');
-                            setNewPartnerDomain('');
-                            setShowAddPartnerForm(false);
-                            alert(`🎉 Success! ${newPartnerCompany} has been added to Chalo One Affiliate System.`);
-                          }}
-                          className="px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-[10px] tracking-wider uppercase rounded-lg shadow cursor-pointer"
-                        >
-                          Confirm & Provision Affiliate
-                        </button>
-                      </div>
-                    )}
-
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse text-xs">
-                        <thead>
-                          <tr className="border-b border-slate-800 text-[9px] text-slate-500 uppercase tracking-widest font-mono">
-                            <th className="py-2.5">Platform Partner</th>
-                            <th>Synchronization Domain</th>
-                            <th>Clicks</th>
-                            <th>Conversions</th>
-                            <th>Comm. Rate</th>
-                            <th>Earnings</th>
-                            <th>Status</th>
-                            <th className="text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800 text-slate-300">
-                          {affiliatesList.map((aff) => (
-                            <tr key={aff.id} className="hover:bg-slate-800/20 transition-colors">
-                              <td className="py-3 font-extrabold text-white">{aff.companyName}</td>
-                              <td className="font-mono text-slate-400">{aff.domain}</td>
-                              <td className="font-mono">{aff.clicks.toLocaleString()}</td>
-                              <td className="font-mono text-amber-400 font-bold">{aff.conversions}</td>
-                              <td className="font-mono">{aff.commissionRate}%</td>
-                              <td className="font-mono font-bold text-emerald-400">₹{(aff.revenue).toLocaleString()}</td>
-                              <td>
-                                <span className={`px-2 py-0.5 rounded text-[8.5px] font-bold font-mono uppercase ${
-                                  aff.isActivated ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
-                                }`}>
-                                  {aff.isActivated ? 'ACTIVE' : 'PAUSED'}
-                                </span>
-                              </td>
-                              <td className="text-right">
-                                <div className="flex justify-end gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setAffiliatesList(affiliatesList.map(a => a.id === aff.id ? { ...a, isActivated: !a.isActivated } : a));
-                                    }}
-                                    className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded text-[8px] font-bold uppercase transition"
-                                  >
-                                    {aff.isActivated ? 'Pause' : 'Activate'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (confirm(`Are you sure you want to remove ${aff.companyName}?`)) {
-                                        setAffiliatesList(affiliatesList.filter(a => a.id !== aff.id));
-                                      }
-                                    }}
-                                    className="p-1 bg-rose-500/15 hover:bg-rose-500/30 text-rose-400 rounded transition"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  {/* Real-time Referral booking conversion logs */}
-                  <div className="bg-slate-850 rounded-2xl border border-slate-800 overflow-hidden">
-                    <div className="px-4 py-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
-                      <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider font-mono">Real-Time Referral Booking Conversions</h4>
-                      <span className="text-[9px] font-bold text-slate-400">Live Web Stream</span>
-                    </div>
-
-                    <div className="divide-y divide-slate-800 max-h-72 overflow-y-auto">
-                      {activities && activities.length > 0 ? (
-                        activities.map((act: any, i: number) => {
-                          const cost = typeof act.amount === 'number' ? act.amount : parseFloat(String(act.amount || '0').replace(/[^0-9.]/g, ''));
-                          const commission = (cost * (globalCommissionRate / 100)).toFixed(2);
-                          return (
-                            <div key={i} className="px-4 py-3.5 flex items-center justify-between hover:bg-slate-800/40 transition text-xs">
-                              <div className="flex items-start space-x-3">
-                                <span className="text-lg shrink-0 mt-0.5">👑</span>
-                                <div>
-                                  <div className="font-extrabold text-white uppercase tracking-wide">
-                                    {act.title || 'Referral Booking'}
-                                  </div>
-                                  <div className="text-[10px] text-slate-450 font-mono mt-0.5">
-                                    User Ref: <span className="text-slate-300">@{userProfile.referralCode}</span> | ID: CHALO_REF_{i+948}
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <div className="text-xs font-black text-amber-400">
-                                  +₹{commission}
-                                </div>
-                                <div className="text-[8px] font-mono text-slate-500 mt-0.5">
-                                  {globalCommissionRate}% of ₹{cost} Booking
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
-                      ) : null}
-
-                      {/* Hardcoded static conversions shown cleanly with globalCommissionRate */}
-                      {[
-                        { title: "Hotel Stay: Calangute Beach, North Goa", cost: 7200, user: "chalo_shreya9", platform: "TravelBlogger India" },
-                        { title: "Rides Compare: Uber XL, Airport to Koramangala", cost: 1250, user: "chalo_anirudh2", platform: "RideRadar Network" },
-                        { title: "Intercity Cab: Jaipur to Delhi NCR", cost: 4800, user: "chalo_kunalp1", platform: "StayNavigator Blog" },
-                        { title: "Food Saver Pool: Behrouz Biryani Combo Box", cost: 890, user: "chalo_priya3", platform: "TravelBlogger India" }
-                      ].map((item, idx) => {
-                        const commission = (item.cost * (globalCommissionRate / 100)).toFixed(2);
-                        return (
-                          <div key={idx} className="px-4 py-3.5 flex items-center justify-between hover:bg-slate-800/40 transition text-xs text-slate-300">
-                            <div className="flex items-start space-x-3">
-                              <span className="text-base shrink-0 mt-0.5">👑</span>
-                              <div>
-                                <div className="font-extrabold text-white">
-                                  {item.title}
-                                </div>
-                                <div className="text-[10px] text-slate-450 font-mono mt-0.5">
-                                  Platform source: <span className="text-slate-200 font-bold">{item.platform}</span> | User: <span className="text-slate-300">@{item.user}</span>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-xs font-black text-amber-400">
-                                +₹{commission}
-                              </div>
-                              <div className="text-[8px] font-mono text-slate-500 mt-0.5">
-                                {globalCommissionRate}% of ₹{item.cost} Booking
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  </div>
-                  )}
-
-                  {/* CATEGORY 3: API & WEBHOOK INTEGRATIONS PART B */}
-                  {activeAdminTab === 'apis' && (
-                    <div className="space-y-6 animate-fadeIn">
-
-                  {/* 📧 LIVE EMAIL SMTP DISPATCH TESTING PANEL */}
-                  <div className="bg-slate-850 p-5 rounded-2xl border border-slate-800 space-y-4">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                      <div>
-                        <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                          <span>📧</span> Live Email SMTP Dispatch Webhook Test
-                        </h4>
-                        <p className="text-[10.5px] text-slate-400">Trigger manual SMTP delivery signals using current synced API credentials on chaloone.com.</p>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono text-[8.5px] font-bold px-2 py-0.5 rounded uppercase">
-                          WEBHOOK: CONNECTED
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 space-y-2 text-[11px]">
-                      <div className="flex justify-between items-center font-mono">
-                        <span className="text-slate-500">API_KEY_WEBHOOK:</span>
-                        <span className="text-slate-300 font-bold">{emailWebhookApi.slice(0,12)}...{emailWebhookApi.slice(-8)}</span>
-                      </div>
-                      <div className="flex justify-between items-center font-mono">
-                        <span className="text-slate-500">SMTP_TOKEN:</span>
-                        <span className="text-slate-300 font-bold">{emailApiToken.slice(0,12)}...{emailApiToken.slice(-8)}</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3 pt-1">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block font-mono">Recipient Email</label>
-                          <input 
-                            type="email" 
-                            id="webhook_test_recipient"
-                            defaultValue={userProfile.email}
-                            className="w-full bg-slate-900 border border-slate-750 p-2.5 rounded-lg text-xs font-bold text-slate-100 focus:ring-1 focus:ring-amber-400 outline-none" 
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block font-mono">Action Category</label>
-                          <select 
-                            id="webhook_test_action"
-                            className="w-full bg-slate-900 border border-slate-750 p-2.5 rounded-lg text-xs font-bold text-slate-100 focus:ring-1 focus:ring-amber-400 outline-none"
-                          >
-                            <option value="FOUNDER_ALERT">👑 Founder System Notification</option>
-                            <option value="AFFILIATE_PAYOUT">💰 Payout Cleared Hook</option>
-                            <option value="TRANSACTION_CONFIRM">⚡ Secure Ledger Verification</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block font-mono">Notification Message Body</label>
-                        <textarea 
-                          id="webhook_test_body"
-                          rows={2}
-                          defaultValue="Chalo One Affiliate System: Affiliate ledger synchronization successfully completed on chaloone.com. All API SMTP webhook signals fired."
-                          className="w-full bg-slate-900 border border-slate-750 p-2.5 rounded-lg text-xs font-bold text-slate-100 focus:ring-1 focus:ring-amber-400 outline-none resize-none"
-                        />
-                      </div>
-
-                      <button
-                        type="button"
-                        disabled={isSendingWebhookTest}
-                        onClick={async () => {
-                          setIsSendingWebhookTest(true);
-                          setWebhookTestResult(null);
-                          setWebhookTestError(null);
-
-                          const recVal = (document.getElementById('webhook_test_recipient') as HTMLInputElement)?.value;
-                          const actVal = (document.getElementById('webhook_test_action') as HTMLSelectElement)?.value;
-                          const bodyVal = (document.getElementById('webhook_test_body') as HTMLTextAreaElement)?.value;
-
-                          try {
-                            const response = await fetch('/api/send-email', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                recipient: recVal || userProfile.email || 'test@example.com',
-                                subject: '👑 Chalo One Founder Affiliate Alert',
-                                body: bodyVal,
-                                actionType: actVal,
-                                apiToken: emailApiToken,
-                                webhookApi: emailWebhookApi
-                              })
-                            });
-
-                            const data = await response.json();
-                            if (!response.ok) {
-                              throw new Error(data.error || 'Server dispatch failed');
-                            }
-                            setWebhookTestResult(data);
-                          } catch (err: any) {
-                            setWebhookTestError(err.message || 'Error occurred while executing API post');
-                          } finally {
-                            setIsSendingWebhookTest(false);
-                          }
-                        }}
-                        className={`w-full py-2.5 rounded-xl text-[10.5px] font-black uppercase transition shadow-md cursor-pointer text-slate-950 flex items-center justify-center gap-1.5 ${
-                          isSendingWebhookTest 
-                            ? 'bg-amber-450/65 cursor-not-allowed text-slate-700' 
-                            : 'bg-amber-400 hover:bg-amber-500'
-                        }`}
-                      >
-                        {isSendingWebhookTest ? (
-                          <>
-                            <span className="inline-block animate-spin rounded-full h-3.5 w-3.5 border-2 border-slate-950 border-t-transparent"></span>
-                            Dispatching Webhook Signals...
-                          </>
-                        ) : (
-                          '🔌 Dispatch Secure Email Webhook & API Alert'
-                        )}
-                      </button>
-
-                      {/* Success Results Display */}
-                      {webhookTestResult && (
-                        <div className="bg-emerald-950/40 border border-emerald-500/25 p-3.5 rounded-xl space-y-2 text-xs">
-                          <div className="flex items-center gap-1.5 text-emerald-400 font-extrabold uppercase text-[10px]">
-                            <span>✓</span> Event Signals Dispatched Successfully
-                          </div>
-                          <p className="text-[10.5px] text-slate-300">
-                            {webhookTestResult.message}
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Failure Results Display */}
-                      {webhookTestError && (
-                        <div className="bg-rose-950/40 border border-rose-500/25 p-3 rounded-xl text-xs space-y-1">
-                          <div className="text-rose-400 font-extrabold uppercase text-[10px] flex items-center gap-1">
-                            <span>⚠</span> API Connection Error
-                          </div>
-                          <p className="text-[10.5px] text-slate-300">
-                            {webhookTestError}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  </div>
-                  )}
-
-                  {/* CATEGORY 2: SYSTEM PHASE-WISE FEATURE PERMISSIONS */}
-                  {activeAdminTab === 'features' && (
-                    <div className="space-y-6 animate-fadeIn">
-                      
-                      {/* Tags Bar */}
-                      <div className="flex items-center gap-2 bg-slate-900 px-4 py-2.5 rounded-2xl border border-slate-800 text-[10.5px] font-mono">
-                        <span className="text-slate-500 font-bold uppercase">Tags:</span>
-                        <span className="text-emerald-400 font-bold">#permissions</span>
-                        <span className="text-indigo-400 font-bold">#releases</span>
-                        <span className="text-pink-400 font-bold">#system_toggles</span>
-                        <span className="text-sky-400 font-bold">#phase_control</span>
-                        <span className="ml-auto text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded uppercase font-black tracking-widest">
-                          Releases
-                        </span>
-                      </div>
-
-                  {/* NEW: SYSTEM PHASE-WISE FEATURE MANAGEMENT PANEL */}
-                  <div className="bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 p-6 rounded-3xl border border-amber-500/20 shadow-xl space-y-6 mt-6">
-                    <div className="border-b border-slate-800 pb-4">
-                      <h4 className="text-sm font-display font-black text-white uppercase tracking-wider flex items-center gap-2">
-                        <span>🛡️</span> System Phase-wise Feature & Permissions Manager
-                      </h4>
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        Control and release application features in a structured, phase-wise manner for public users. Disabled features will be hidden globally, and the AI Assistant will state they are coming soon.
-                      </p>
-                    </div>
-
-                    {/* Phase 1 */}
-                    <div className="space-y-3">
-                      <div className="text-[10px] font-extrabold text-amber-400 uppercase tracking-widest pl-1 font-mono">
-                        Phase 1: Core Essentials & Wallet
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-                          <div>
-                            <h5 className="text-xs font-bold text-white">🚕 Local Cabs</h5>
-                            <p className="text-[10px] text-slate-400">Uber, Ola, Rapido comparison</p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={localFeatureToggles.rides !== false}
-                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, rides: e.target.checked })}
-                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
-                          />
-                        </div>
-                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-                          <div>
-                            <h5 className="text-xs font-bold text-white">🍔 Food Delivery</h5>
-                            <p className="text-[10px] text-slate-400">Zomato & Swiggy deals</p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={localFeatureToggles.food !== false}
-                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, food: e.target.checked })}
-                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
-                          />
-                        </div>
-                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-                          <div>
-                            <h5 className="text-xs font-bold text-white">💰 Wallet Program</h5>
-                            <p className="text-[10px] text-slate-400">Coins, balances, payment logs</p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={localFeatureToggles.wallet !== false}
-                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, wallet: e.target.checked })}
-                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Phase 2 */}
-                    <div className="space-y-3">
-                      <div className="text-[10px] font-extrabold text-cyan-400 uppercase tracking-widest pl-1 font-mono">
-                        Phase 2: Travel Growth & Referrals
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-                          <div>
-                            <h5 className="text-xs font-bold text-white">🛒 Fast Grocery</h5>
-                            <p className="text-[10px] text-slate-400">Blinkit, Zepto, Instamart</p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={localFeatureToggles.mart !== false}
-                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, mart: e.target.checked })}
-                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
-                          />
-                        </div>
-                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-                          <div>
-                            <h5 className="text-xs font-bold text-white">🚌 Outstation Cabs</h5>
-                            <p className="text-[10px] text-slate-400">Intercity highway routes</p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={localFeatureToggles.intercity !== false}
-                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, intercity: e.target.checked })}
-                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
-                          />
-                        </div>
-                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-                          <div>
-                            <h5 className="text-xs font-bold text-white">🎁 Referral Program</h5>
-                            <p className="text-[10px] text-slate-400">Referral reward codes & desk</p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={localFeatureToggles.referrals !== false}
-                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, referrals: e.target.checked })}
-                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Phase 3 */}
-                    <div className="space-y-3">
-                      <div className="text-[10px] font-extrabold text-purple-400 uppercase tracking-widest pl-1 font-mono">
-                        Phase 3: Premium Ecosystem & AI Planner
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-                          <div>
-                            <h5 className="text-xs font-bold text-white">🏨 Book Stays</h5>
-                            <p className="text-[10px] text-slate-400">Agoda & Booking.com tariffs</p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={localFeatureToggles.stays !== false}
-                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, stays: e.target.checked })}
-                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
-                          />
-                        </div>
-                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-                          <div>
-                            <h5 className="text-xs font-bold text-white">⚡ Utility Bills</h5>
-                            <p className="text-[10px] text-slate-400">Electricity, Broadband, Water</p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={localFeatureToggles.bills !== false}
-                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, bills: e.target.checked })}
-                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
-                          />
-                        </div>
-                        <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-                          <div>
-                            <h5 className="text-xs font-bold text-white">🗺️ Smart AI Planner</h5>
-                            <p className="text-[10px] text-slate-400">Interactive chat itineraries</p>
-                          </div>
-                          <input
-                            type="checkbox"
-                            checked={localFeatureToggles.planner !== false}
-                            onChange={(e) => setLocalFeatureToggles({ ...localFeatureToggles, planner: e.target.checked })}
-                            className="w-4.5 h-4.5 text-amber-500 rounded border-slate-700 bg-slate-900 focus:ring-amber-500 cursor-pointer"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Apply Configuration Button */}
-                    <div className="pt-4 border-t border-slate-800 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (saveFeatureToggles) {
-                            try {
-                              await saveFeatureToggles(localFeatureToggles);
-                              alert("✓ Success: Global Application Feature Permissions updated successfully in Firestore Database.");
-                            } catch (err: any) {
-                              alert("❌ Error: Failed to save changes in Firestore database. " + err.message);
-                            }
-                          } else {
-                            alert("✓ Info: Feature toggles saved locally.");
-                          }
-                        }}
-                        className="w-full sm:w-auto px-6 py-3 bg-amber-400 hover:bg-amber-500 text-slate-950 font-black uppercase rounded-2xl text-[10.5px] tracking-wider transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <span>💾</span> Apply Phase-wise Feature Permissions Globally
-                      </button>
-                    </div>
-                  </div>
-                  </div>
-                  )}
-
-                </div>
-              )}
-
-              {/* SECTION B: AFFILIATE PARTNER DASHBOARD */}
-              {userProfile.role === 'affiliate_partner' && (
-                <div className="space-y-6">
-                  
-                  {/* Partner Overview Welcome */}
-                  <div className="bg-gradient-to-r from-amber-450/10 to-amber-500/5 p-5 rounded-2xl border border-amber-500/15 flex items-center justify-between">
-                    <div>
-                      <h4 className="text-sm font-black text-amber-400">Welcome, {userProfile.affiliateDetails?.companyName || userProfile.name}!</h4>
-                      <p className="text-xs text-slate-400 mt-1">Your website integration with <span className="text-white font-bold">{userProfile.affiliateDetails?.domain || 'chaloone.com'}</span> is active. Start earning referral fees!</p>
-                    </div>
-                    <span className="bg-amber-400/10 border border-amber-400/20 text-amber-400 text-[10px] font-mono font-bold px-2.5 py-1 rounded-lg">
-                      API: ACTIVE
-                    </span>
-                  </div>
-
-                  {/* Personal Stats Grid */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {[
-                      { label: "My Traffic Clicks", val: `${(userProfile.affiliateDetails?.clicks || 1420).toLocaleString()} clicks`, pct: "Synced 1m ago", color: "text-slate-300" },
-                      { label: "Referral Bookings", val: `${userProfile.affiliateDetails?.conversions || 184} sales`, pct: `${((userProfile.affiliateDetails?.conversions || 184) / (userProfile.affiliateDetails?.clicks || 1420) * 100).toFixed(1)}% Conv. Rate`, color: "text-amber-400" },
-                      { label: "Referral fee rate", val: `${userProfile.affiliateDetails?.commissionRate || 12}%`, pct: "VIP tier tiering", color: "text-blue-400" },
-                      { label: "Accrued Revenue", val: `₹${(userProfile.affiliateDetails?.revenue || 9200.00).toLocaleString()}`, pct: "Clearance: 1st of month", color: "text-emerald-400 font-extrabold" }
-                    ].map((st, i) => (
-                      <div key={i} className="bg-slate-850 p-4 rounded-2xl border border-slate-800 flex flex-col justify-between">
-                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest block font-mono">{st.label}</span>
-                        <div className="my-2">
-                          <span className={`text-sm md:text-base font-display font-black ${st.color}`}>{st.val}</span>
-                        </div>
-                        <span className="text-[8.5px] font-mono text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded w-max mt-1">{st.pct}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* CONFIGURE PARTNER PARAMETERS */}
-                  <div className="bg-slate-850 p-5 rounded-2xl border border-slate-800 space-y-4">
-                    <div>
-                      <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">🔧 Custom Domain & Webhook Integration</h4>
-                      <p className="text-[10.5px] text-slate-400">Configure your domain and target callback webhook URL to receive instant transaction synchronization parameters.</p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                      <div className="space-y-1 col-span-1">
-                        <label className="text-[8.5px] text-slate-400 uppercase font-mono block">Primary Domain name</label>
-                        <input 
-                          type="text" 
-                          id="partner_config_domain"
-                          defaultValue={userProfile.affiliateDetails?.domain || 'partnerblog.com'}
-                          className="w-full bg-slate-900 border border-slate-750 p-2.5 rounded-lg text-xs font-bold text-slate-100 focus:ring-1 focus:ring-amber-400 outline-none" 
-                        />
-                      </div>
-                      <div className="space-y-1 col-span-2">
-                        <label className="text-[8.5px] text-slate-400 uppercase font-mono block">Webhook Callback URL</label>
-                        <input 
-                          type="text" 
-                          id="partner_config_webhook"
-                          defaultValue={userProfile.affiliateDetails?.webhookUrl || `https://${userProfile.affiliateDetails?.domain || 'partnerblog.com'}/api/chalo-payout`}
-                          className="w-full bg-slate-900 border border-slate-750 p-2.5 rounded-lg text-xs font-bold text-slate-100 focus:ring-1 focus:ring-amber-400 outline-none" 
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const domVal = (document.getElementById('partner_config_domain') as HTMLInputElement)?.value;
-                        const webVal = (document.getElementById('partner_config_webhook') as HTMLInputElement)?.value;
-                        if (!domVal || !webVal) {
-                          alert('Domain and Webhook parameters are required.');
-                          return;
-                        }
-                        const updated: UserProfile = {
-                          ...userProfile,
-                          affiliateDetails: {
-                            clicks: userProfile.affiliateDetails?.clicks ?? 1420,
-                            conversions: userProfile.affiliateDetails?.conversions ?? 184,
-                            revenue: userProfile.affiliateDetails?.revenue ?? 9200,
-                            commissionRate: userProfile.affiliateDetails?.commissionRate ?? 12,
-                            companyName: userProfile.affiliateDetails?.companyName ?? userProfile.name ?? 'Partner Platform',
-                            domain: domVal,
-                            webhookUrl: webVal,
-                            apiConfigured: true
-                          }
-                        };
-                        setUserProfile(updated);
-                        localStorage.setItem('chalo_saved_profile', JSON.stringify(updated));
-                        alert('🎉 Successfully synchronized! Your domain & callback webhook have been updated in Chalo One database.');
-                      }}
-                      className="px-4 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 text-[10.5px] font-black uppercase rounded-lg transition shadow-sm cursor-pointer"
-                    >
-                      Save Sync Configuration
-                    </button>
-                  </div>
-
-                  {/* HTML TRACKING TAG BLOCK */}
-                  <div className="bg-slate-850 p-5 rounded-2xl border border-slate-800 space-y-3">
-                    <div>
-                      <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">🔌 Paste Web Lead Tracking Script</h4>
-                      <p className="text-[10.5px] text-slate-400">Insert this lightweight tracking tag in the HTML head of your platform to track conversion events automatically.</p>
-                    </div>
-
-                    <div className="relative">
-                      <pre className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-[10.5px] font-mono text-amber-300 overflow-x-auto whitespace-pre-wrap leading-normal">
-                        {`<script \n  src="https://chaloone.com/sdk/tracker.js"\n  data-affiliate-id="${userProfile.referralCode}"\n  data-api-token="b05c19cca9a302ef825cd58847f704639e6332b4f110d75ff3644dc8778bfcfe"\n></script>`}
-                      </pre>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const tag = `<script \n  src="https://chaloone.com/sdk/tracker.js"\n  data-affiliate-id="${userProfile.referralCode}"\n  data-api-token="b05c19cca9a302ef825cd58847f704639e6332b4f110d75ff3644dc8778bfcfe"\n></script>`;
-                          navigator.clipboard.writeText(tag);
-                          alert('📋 Tracking script copied to clipboard!');
-                        }}
-                        className="absolute right-3 top-3 p-1.5 bg-slate-850 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-300 hover:text-white transition"
-                        title="Copy code"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Link Campaign builder */}
-                  <div className="bg-slate-850 p-5 rounded-2xl border border-slate-800 space-y-4">
-                    <div>
-                      <h4 className="text-xs font-black text-amber-400 uppercase tracking-wider">🔗 Affiliate UTM Link Builder</h4>
-                      <p className="text-[10.5px] text-slate-400">Generate trackable partner referral links pointing directly to your platform campaign channels on chaloone.com.</p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block font-mono">UTM Campaign Channel</label>
-                        <input 
-                          type="text" 
-                          id="partner_utm_camp"
-                          defaultValue="BLOG_SIDEBAR"
-                          className="w-full bg-slate-900 border border-slate-750 p-2.5 rounded-lg text-xs font-bold text-slate-100 focus:ring-1 focus:ring-amber-400 outline-none" 
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-wider block font-mono">Destination Category</label>
-                        <select 
-                          id="partner_utm_dest"
-                          className="w-full bg-slate-900 border border-slate-750 p-2.5 rounded-lg text-xs font-bold text-slate-100 focus:ring-1 focus:ring-amber-400 outline-none"
-                        >
-                          <option value="home">Home comparison portal</option>
-                          <option value="rides">Rides Aggregator Page</option>
-                          <option value="stays">Hotel Stay Bookings</option>
-                          <option value="food">Food Ordering Box</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const campVal = (document.getElementById('partner_utm_camp') as HTMLInputElement)?.value || 'CAMPAIGN';
-                        const destVal = (document.getElementById('partner_utm_dest') as HTMLSelectElement)?.value || 'home';
-                        const trackingUrl = `https://chaloone.com?ref=${userProfile.referralCode}&utm_source=${userProfile.affiliateDetails?.companyName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'partner'}&utm_campaign=${campVal}&target=${destVal}`;
-                        navigator.clipboard.writeText(trackingUrl);
-                        alert(`📋 Copied Affiliate Tracking URL:\n\n${trackingUrl}`);
-                      }}
-                      className="w-full py-2.5 bg-amber-400 hover:bg-amber-500 text-slate-950 text-[10.5px] font-black uppercase rounded-xl transition shadow-sm cursor-pointer"
-                    >
-                      Generate & Copy Custom URL 📋
-                    </button>
-                  </div>
-
-                </div>
-              )}
-
-            </div>
+          
+          {/* VIP ADMIN CONTROL CENTER */}
+          {activeSection === 'admin_center' && (
+            <AdminControlCenter userProfile={userProfile} onBack={() => setActiveSection('main')} />
           )}
+
+          {/* MERCHANT PARTNER PORTAL DESK */}
+          {activeSection === 'partner_portal' && (
+            <PartnerPortal userProfile={userProfile} onBack={() => setActiveSection('main')} />
+          )}
+
+          
 
         </div>
       )}
@@ -3991,11 +2691,9 @@ export default function AccountPage({
                     return;
                   }
                   setIsVerifyingLink(true);
-                  // Simulate Carrier verification API check
-                  await new Promise(r => setTimeout(r, 1200));
+                  // In production this would invoke Firebase Auth or OAuth to link the provider
                   setIsVerifyingLink(false);
                   setIsLinkSuccess(true);
-                  await new Promise(r => setTimeout(r, 800));
                   
                   // Success link connection
                   setConnectedAccounts({

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { APIProvider, Map, Marker, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
+import { Map, Marker, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
 import { MapPin, Search, Navigation, Compass, Sparkles, Star, CheckCircle, Info, Leaf, Award } from 'lucide-react';
+import { mapService } from '../services/mapService';
 
 // Indian City Landmarks Database for Simulated Autocomplete/Keyword lookup when no key is entered
 const LANDMARKS_DB = [
@@ -34,19 +35,7 @@ interface ChaloMapViewProps {
   tripLiveStatus?: string;
 }
 
-import firebaseConfig from '../../firebase-applet-config.json';
-import { getAppCheckToken } from '../firebase';
-const API_KEY = firebaseConfig.apiKey || 'AIzaSyCycCOkBHlCiXCvcxtO-sAuj-DmCXVmCqQ';
-
-export default function ChaloMapView(props: ChaloMapViewProps) {
-  return (
-    <APIProvider apiKey={API_KEY} version="weekly" fetchAppCheckToken={getAppCheckToken}>
-      <ChaloMapViewInner {...props} />
-    </APIProvider>
-  );
-}
-
-function ChaloMapViewInner({
+export default function ChaloMapView({
   label,
   placeholder,
   initialValue,
@@ -190,48 +179,17 @@ function ChaloMapViewInner({
     }
   }, [isTrackingMode, pickupCoords, map]);
 
-  const placesLib = useMapsLibrary('places');
-  const [autocompleteService, setAutocompleteService] = useState<any>(null);
-  const [placesService, setPlacesService] = useState<any>(null);
-
   useEffect(() => {
     setQuery(initialValue);
   }, [initialValue]);
 
-  useEffect(() => {
-    if (!placesLib) return;
-    try {
-      setAutocompleteService(new placesLib.AutocompleteService());
-    } catch (e) {
-      console.warn("AutocompleteService init failed", e);
-    }
-  }, [placesLib]);
-
-  useEffect(() => {
-    if (!placesLib) return;
-    try {
-      const dummyDiv = document.createElement('div');
-      setPlacesService(new placesLib.PlacesService((map?.getDiv() || dummyDiv) as HTMLDivElement));
-    } catch (e) {
-      console.warn("PlacesService init failed", e);
-    }
-  }, [placesLib, map]);
-
-  const handleMarkerDragEnd = (lat: number, lng: number) => {
+  const handleMarkerDragEnd = async (lat: number, lng: number) => {
     setSelectedCoords({ lat, lng });
-    if (window.google && window.google.maps) {
-      const geocoder = new window.google.maps.Geocoder();
-      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-        if (status === "OK" && results && results[0]) {
-          const address = results[0].formatted_address;
-          setQuery(address);
-          onLocationSelect(address, lat, lng);
-        } else {
-          const resolvedName = `GPS Pin Dropped: (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
-          setQuery(resolvedName);
-          onLocationSelect(resolvedName, lat, lng);
-        }
-      });
+    const response = await mapService.reverseGeocode(lat, lng);
+    if (response.success && response.data) {
+      const address = response.data.formattedAddress;
+      setQuery(address);
+      onLocationSelect(address, lat, lng);
     } else {
       const resolvedName = `GPS Pin Dropped: (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
       setQuery(resolvedName);
@@ -247,8 +205,8 @@ function ChaloMapViewInner({
         draggable={true}
         onDragEnd={(e) => {
           if (e.latLng) {
-            const latVal = typeof e.latLng.lat === 'function' ? e.latLng.lat() : e.latLng.lat;
-            const lngVal = typeof e.latLng.lng === 'function' ? e.latLng.lng() : e.latLng.lng;
+            const latVal = typeof e.latLng.lat === 'function' ? (e.latLng.lat as any)() : (e.latLng.lat as any);
+            const lngVal = typeof e.latLng.lng === 'function' ? (e.latLng.lng as any)() : (e.latLng.lng as any);
             handleMarkerDragEnd(latVal, lngVal);
           }
         }}
@@ -256,78 +214,73 @@ function ChaloMapViewInner({
     ) : null;
   }
 
-  // Fetch suggestions from AutocompleteService or fallback to LANDMARKS_DB
+  // Fetch suggestions from mapService with automatic caching, throttling, retry, and offline fallback
   useEffect(() => {
-    if (!query.trim() || query === initialValue) {
-      setSuggestions([]);
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      if (autocompleteService) {
-        autocompleteService.getPlacePredictions(
-          {
-            input: query,
-            componentRestrictions: { country: 'in' },
-          },
-          (predictions: any, status: any) => {
-            if (status === 'OK' && predictions) {
-              const formatted = predictions.map((pred: any) => ({
-                name: pred.description,
-                city: pred.structured_formatting?.secondary_text || 'India',
-                lat: 0,
-                lng: 0,
-                desc: pred.structured_formatting?.main_text || pred.description,
-                placeId: pred.place_id
-              }));
-              setSuggestions(formatted);
-            } else {
-              // Fallback to local filtering
-              const filtered = LANDMARKS_DB.filter(item => 
-                item.name.toLowerCase().includes(query.toLowerCase()) ||
-                item.city.toLowerCase().includes(query.toLowerCase())
-              );
-              setSuggestions(filtered.slice(0, 5));
-            }
-          }
-        );
-      } else {
-        // Fallback to local filtering
-        const filtered = LANDMARKS_DB.filter(item => 
-          item.name.toLowerCase().includes(query.toLowerCase()) ||
-          item.city.toLowerCase().includes(query.toLowerCase())
-        );
-        setSuggestions(filtered.slice(0, 5));
+    const handler = setTimeout(() => {
+      if (!query.trim() || query === initialValue) {
+        setSuggestions([]);
+        return;
       }
-    }, 300);
 
-    return () => clearTimeout(timer);
-  }, [query, autocompleteService, initialValue]);
+      let isSubscribed = true;
 
-  const selectSuggestion = (landmark: any) => {
-    if (landmark.placeId && placesService) {
-      placesService.getDetails(
-        {
-          placeId: landmark.placeId,
-          fields: ['geometry', 'formatted_address', 'name']
-        },
-        (place: any, status: any) => {
-          if (status === 'OK' && place && place.geometry && place.geometry.location) {
-            const lat = place.geometry.location.lat();
-            const lng = place.geometry.location.lng();
-            const fullName = place.formatted_address || landmark.name;
-            setQuery(fullName);
-            setSelectedCoords({ lat, lng });
-            onLocationSelect(fullName, lat, lng);
-            if (map) {
-              map.panTo({ lat, lng });
-            }
-          } else {
-            setQuery(landmark.name);
-            onLocationSelect(landmark.name);
-          }
+      const fetchPredictions = async () => {
+        const response = await mapService.getPlacePredictions(query);
+        if (!isSubscribed) return;
+
+        if (response.success && response.data) {
+          const formatted = response.data.map((pred: any) => ({
+            name: pred.description,
+            city: pred.structured_formatting?.secondary_text || 'India',
+            lat: 0,
+            lng: 0,
+            desc: pred.structured_formatting?.main_text || pred.description,
+            placeId: pred.place_id
+          }));
+          setSuggestions(formatted);
+        } else {
+          // Fallback to local filtering
+          const filtered = LANDMARKS_DB.filter(item => 
+            item.name.toLowerCase().includes(query.toLowerCase()) ||
+            item.city.toLowerCase().includes(query.toLowerCase())
+          );
+          setSuggestions(filtered.slice(0, 5));
         }
-      );
+      };
+
+      fetchPredictions();
+
+      return () => {
+        isSubscribed = false;
+      };
+    }, 400);
+
+    return () => clearTimeout(handler);
+  }, [query, initialValue]);
+
+  const selectSuggestion = async (landmark: any) => {
+    if (landmark.placeId) {
+      const response = await mapService.getPlaceDetails(landmark.placeId);
+      if (response.success && response.data) {
+        const place = response.data;
+        if (place.geometry && place.geometry.location) {
+          const lat = typeof place.geometry.location.lat === 'function' ? place.geometry.location.lat() : place.geometry.location.lat;
+          const lng = typeof place.geometry.location.lng === 'function' ? place.geometry.location.lng() : place.geometry.location.lng;
+          const fullName = place.formatted_address || landmark.name;
+          setQuery(fullName);
+          setSelectedCoords({ lat, lng });
+          onLocationSelect(fullName, lat, lng);
+          if (map) {
+            map.panTo({ lat, lng });
+          }
+        } else {
+          setQuery(landmark.name);
+          onLocationSelect(landmark.name);
+        }
+      } else {
+        setQuery(landmark.name);
+        onLocationSelect(landmark.name);
+      }
     } else {
       setQuery(landmark.name);
       setSelectedCoords({ lat: landmark.lat, lng: landmark.lng });
@@ -348,34 +301,23 @@ function ChaloMapViewInner({
     setGpsLoading(true);
     setGpsError(null);
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
         
-        // Use true Google Geocoder for reverse-geocoding the precise GPS coordinates
-        if (window.google && window.google.maps) {
-          const geocoder = new window.google.maps.Geocoder();
-          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-            if (status === "OK" && results && results[0]) {
-              const address = results[0].formatted_address;
-              setQuery(address);
-              setSelectedCoords({ lat, lng });
-              onLocationSelect(address, lat, lng);
-            } else {
-              const resolvedName = `GPS Location: (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
-              setQuery(resolvedName);
-              setSelectedCoords({ lat, lng });
-              onLocationSelect(resolvedName, lat, lng);
-            }
-            setGpsLoading(false);
-          });
+        const response = await mapService.reverseGeocode(lat, lng);
+        if (response.success && response.data) {
+          const address = response.data.formattedAddress;
+          setQuery(address);
+          setSelectedCoords({ lat, lng });
+          onLocationSelect(address, lat, lng);
         } else {
           const resolvedName = `GPS Location: (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
           setQuery(resolvedName);
           setSelectedCoords({ lat, lng });
           onLocationSelect(resolvedName, lat, lng);
-          setGpsLoading(false);
         }
+        setGpsLoading(false);
 
         if (map) {
           map.panTo({ lat, lng });
@@ -383,7 +325,6 @@ function ChaloMapViewInner({
       },
       (error) => {
         console.warn("GPS failed", error);
-        // Better fallback - fetch from public API or use a generic neat latlng rather than hardcoding Bengaluru
         const lat = 12.9352;
         const lng = 77.6245;
         const resolvedName = "Koramangala 4th Block, Bengaluru";

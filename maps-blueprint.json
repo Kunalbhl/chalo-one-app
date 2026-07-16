@@ -1,0 +1,61 @@
+{
+  "module": "Google Maps Platform",
+  "version": "1.0.0",
+  "architecture": {
+    "centralized_service": {
+      "file": "src/services/mapService.ts",
+      "exported_instance": "mapService",
+      "description": "Centralizes all Google Maps JavaScript API, Places API, Directions API, and Geocoding API requests. No UI component may call the Google Maps SDK or web endpoints directly."
+    },
+    "features": {
+      "request_caching": {
+        "storage": "localStorage (keyed with 'chalo_maps_cache_')",
+        "ttl_hours": 24,
+        "supported_methods": [
+          "Place Details",
+          "Reverse Geocoding",
+          "Directions",
+          "Distance Matrix"
+        ],
+        "description": "Significantly minimizes Maps API quota usage by reusing responses within a 24-hour window."
+      },
+      "request_throttling": {
+        "mechanism": "Debounce (300ms)",
+        "supported_methods": [
+          "Place Autocomplete/Predictions"
+        ],
+        "description": "Prevents rapid, high-frequency requests when typing in autocomplete search bars."
+      },
+      "offline_resilience": {
+        "mechanism": "Navigator offline state check + Cache lookup",
+        "supported_methods": [
+          "All API requests"
+        ],
+        "description": "Funnels queries to cache when offline; falls back to friendly standardized errors instead of app crashes."
+      },
+      "retry_logic": {
+        "mechanism": "Exponential Backoff",
+        "max_attempts": 3,
+        "initial_delay_ms": 1000,
+        "backoff_factor": 2,
+        "description": "Retries transient network or server errors automatically with staggered delays."
+      },
+      "standardized_response_model": {
+        "structure": {
+          "success": "boolean",
+          "data": "any (templated T)",
+          "errorCode": "string | null",
+          "errorMessage": "string | null"
+        },
+        "description": "Enforces consistent type signatures across all service consumers."
+      }
+    },
+    "data_persistence_compliance": {
+      "atomic_writes": {
+        "firestore_method": "writeBatch()",
+        "scope": "Subcollection syncing & login migrations in src/App.tsx",
+        "description": "Ensures all multiple Firestore address write operations are completely atomic and batch-committed."
+      }
+    }
+  }
+}

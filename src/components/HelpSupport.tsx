@@ -35,7 +35,7 @@ export default function HelpSupport({
     const finalCategory = complaintCategory === 'Other' ? (customCategory.trim() || 'Not Listed / Other') : complaintCategory;
 
     const newTicket: SupportTicket = {
-      id: "CHALO-TKT-" + Math.floor(10000 + Math.random() * 90000),
+      id: "CHALO-TKT-" + parseInt(crypto.randomUUID().slice(0, 4), 16),
       subject,
       category: finalCategory,
       description,
@@ -64,26 +64,6 @@ export default function HelpSupport({
 
     replyToTicket(selectedTicketId, replyText);
     setReplyText('');
-
-    // Simulate Support Desk reply
-    setTimeout(() => {
-      const replies = [
-        "Thank you for reaching out to Chalo One Support. We have flagged your query with our billing desk, and a resolution agent has been dispatched to investigate this transaction.",
-        "Our logistics hub has updated the status of your query. The credit should reflect in your wallet within 3-4 working hours.",
-        "Your feedback is highly valued. Our customer support managers are looking into this directly. We appreciate your patience."
-      ];
-      const selectedReply = replies[Math.floor(Math.random() * replies.length)];
-
-      const tIdx = tickets.findIndex(t => t.id === selectedTicketId);
-      if (tIdx !== -1) {
-        tickets[tIdx].messages.push({
-          sender: 'support',
-          text: selectedReply,
-          timestamp: new Date().toLocaleTimeString()
-        });
-        tickets[tIdx].status = 'In Progress';
-      }
-    }, 3000);
   };
 
   return (
@@ -325,25 +305,6 @@ export default function HelpSupport({
                         // Call prop reply function
                         replyToTicket(t.id, replyText);
                         setReplyText('');
-
-                        // Simulate Support Desk reply
-                        setTimeout(() => {
-                          const replies = [
-                            "Thank you for reaching out to Chalo One Support. We have flagged your query with our billing desk, and a resolution agent has been dispatched to investigate this transaction.",
-                            "Our logistics hub has updated the status of your query. The credit should reflect in your wallet within 3-4 working hours.",
-                            "Your feedback is highly valued. Our customer support managers are looking into this directly. We appreciate your patience."
-                          ];
-                          const selectedReply = replies[Math.floor(Math.random() * replies.length)];
-                          t.messages.push({
-                            sender: 'support',
-                            text: selectedReply,
-                            timestamp: new Date().toLocaleTimeString()
-                          });
-                          t.status = 'In Progress';
-                          // Force state toggle update
-                          setSelectedTicketId(null);
-                          setTimeout(() => setSelectedTicketId(t.id), 50);
-                        }, 1800);
                       }} 
                       className="flex gap-2 bg-white rounded-xl p-1.5 border border-gray-200 shadow-2xs"
                     >

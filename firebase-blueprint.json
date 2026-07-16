@@ -118,12 +118,396 @@
         "createdAt": { "type": "string" },
         "messages": { "type": "array" }
       }
+    },
+    "SavedAddress": {
+      "title": "SavedAddress",
+      "description": "User saved address hotspot",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 100 },
+        "formattedAddress": { "type": "string", "maxLength": 500 },
+        "placeId": { "type": "string", "maxLength": 100 },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" }
+      },
+      "required": ["name", "formattedAddress", "placeId", "latitude", "longitude"]
+    },
+    "Branch": {
+      "title": "Branch",
+      "description": "A branch or business outlet under a partner",
+      "type": "object",
+      "properties": {
+        "branchId": { "type": "string" },
+        "branchName": { "type": "string", "maxLength": 100 },
+        "branchCode": { "type": "string", "maxLength": 50 },
+        "manager": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 20 },
+        "email": { "type": "string", "maxLength": 100 },
+        "address": { "type": "string", "maxLength": 500 },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "openingHours": { "type": "string", "maxLength": 50 },
+        "deliveryRadius": { "type": "number" },
+        "status": { "type": "string", "enum": ["Open", "Busy", "Temporarily Closed", "Holiday", "Maintenance", "Closing Soon"] }
+      },
+      "required": ["branchId", "branchName", "branchCode", "status"]
+    },
+    "Inventory": {
+      "title": "Inventory",
+      "description": "Inventory details for a product",
+      "type": "object",
+      "properties": {
+        "itemId": { "type": "string" },
+        "sku": { "type": "string", "maxLength": 50 },
+        "barcode": { "type": "string", "maxLength": 50 },
+        "purchasePrice": { "type": "number" },
+        "sellingPrice": { "type": "number" },
+        "currentStock": { "type": "number" },
+        "minimumStock": { "type": "number" },
+        "maximumStock": { "type": "number" },
+        "supplier": { "type": "string", "maxLength": 100 },
+        "expiryDate": { "type": "string" },
+        "batchNumber": { "type": "string", "maxLength": 50 },
+        "autoStockDeduction": { "type": "boolean" },
+        "lowStockAlerts": { "type": "boolean" }
+      },
+      "required": ["itemId", "currentStock"]
+    },
+    "Staff": {
+      "title": "Staff",
+      "description": "Staff member working at a restaurant branch",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 20 },
+        "role": { "type": "string", "enum": ["Owner", "Branch Manager", "Kitchen Manager", "Chef", "Cashier", "Inventory Manager", "Support", "Delivery Coordinator"] },
+        "password": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["Active", "Inactive"] }
+      },
+      "required": ["id", "name", "role", "status"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "Customer feedback and replies",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "rating": { "type": "number" },
+        "comment": { "type": "string", "maxLength": 2000 },
+        "reported": { "type": "boolean" },
+        "spam": { "type": "boolean" }
+      }
+    },
+    "Coupon": {
+      "title": "Coupon",
+      "description": "Promo coupon codes and discounts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string", "maxLength": 50 },
+        "type": { "type": "string" },
+        "discountType": { "type": "string" },
+        "discountValue": { "type": "number" },
+        "minOrder": { "type": "number" },
+        "maxDiscount": { "type": "number" },
+        "usageLimit": { "type": "number" },
+        "currentUsage": { "type": "number" }
+      },
+      "required": ["code", "discountType", "discountValue"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Centralized order lifecycle across food, mart, stays, taxi, pharmacy, hotel",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "category": { "type": "string", "enum": ["food", "mart", "pharmacy", "hotel", "taxi", "stays", "intercity"] },
+        "branchId": { "type": "string" },
+        "userId": { "type": "string" },
+        "status": { "type": "string" },
+        "amount": { "type": "number" },
+        "items": { "type": "array" },
+        "driverId": { "type": "string" },
+        "etaMins": { "type": "number" },
+        "createdAt": { "type": "object" },
+        "updatedAt": { "type": "object" }
+      }
+    },
+    "OrderEvent": {
+      "title": "OrderEvent",
+      "description": "Event logged for order state changes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "type": { "type": "string" },
+        "timestamp": { "type": "object" },
+        "details": { "type": "object" }
+      }
+    },
+    "DriverLocation": {
+      "title": "DriverLocation",
+      "description": "Live GPS coordinates of a driver",
+      "type": "object",
+      "properties": {
+        "driverId": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "updatedAt": { "type": "object" }
+      }
+    },
+    "DriverAssignment": {
+      "title": "DriverAssignment",
+      "description": "Task assigned to a driver for delivery dispatch",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "driverId": { "type": "string" },
+        "status": { "type": "string" },
+        "assignedAt": { "type": "object" },
+        "respondedAt": { "type": "object" }
+      }
+    },
+    "DriverHistory": {
+      "title": "DriverHistory",
+      "description": "Historic changes or location logs for driver",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "driverId": { "type": "string" },
+        "orderId": { "type": "string" },
+        "action": { "type": "string" },
+        "timestamp": { "type": "object" }
+      }
+    },
+    "DeliveryRoute": {
+      "title": "DeliveryRoute",
+      "description": "The computed and historic delivery routes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "route": { "type": "array" },
+        "distance": { "type": "number" },
+        "duration": { "type": "number" },
+        "updatedAt": { "type": "object" }
+      }
+    },
+    "Refund": {
+      "title": "Refund",
+      "description": "Refund requests, approval status and audits",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "userId": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string" },
+        "reason": { "type": "string" },
+        "createdAt": { "type": "object" },
+        "updatedAt": { "type": "object" }
+      }
+    },
+    "SupportChat": {
+      "title": "SupportChat",
+      "description": "Customer live support chat linked to orders",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "userId": { "type": "string" },
+        "status": { "type": "string" },
+        "messages": { "type": "array" },
+        "createdAt": { "type": "object" }
+      }
+    },
+    "OrderTracking": {
+      "title": "OrderTracking",
+      "description": "Live status, gps details, and ETA history tracker",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "gpsHistory": { "type": "array" },
+        "etaHistory": { "type": "array" },
+        "routeHistory": { "type": "array" }
+      }
+    },
+    "RewardRule": {
+      "title": "RewardRule",
+      "description": "Rules for earning and redeeming loyalty points",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "action": { "type": "string" },
+        "pointsMultiplier": { "type": "number" },
+        "flatPoints": { "type": "number" },
+        "bonusCampaignActive": { "type": "boolean" },
+        "campaignMultiplier": { "type": "number" },
+        "description": { "type": "string" }
+      }
+    },
+    "RewardTransaction": {
+      "title": "RewardTransaction",
+      "description": "Transactions logging loyalty points earnings/redemptions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "points": { "type": "number" },
+        "type": { "type": "string", "enum": ["earn", "redeem"] },
+        "source": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "object" }
+      }
+    },
+    "MembershipPlan": {
+      "title": "MembershipPlan",
+      "description": "Plans details for subscriptions like Chalo Plus, Gold, Platinum",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "billingCycle": { "type": "string" },
+        "freeDelivery": { "type": "boolean" },
+        "cashbackPercentage": { "type": "number" },
+        "extraCouponsCount": { "type": "number" },
+        "benefits": { "type": "array" }
+      }
+    },
+    "UserMembership": {
+      "title": "UserMembership",
+      "description": "Subscription records of users",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "planId": { "type": "string" },
+        "planName": { "type": "string" },
+        "status": { "type": "string" },
+        "currentPeriodStart": { "type": "object" },
+        "currentPeriodEnd": { "type": "object" },
+        "autoRenew": { "type": "boolean" },
+        "history": { "type": "array" }
+      }
+    },
+    "CouponCampaign": {
+      "title": "CouponCampaign",
+      "description": "Promotional coupon campaigns and restrictions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "type": { "type": "string" },
+        "value": { "type": "number" },
+        "category": { "type": "string" },
+        "scope": { "type": "string" },
+        "merchantId": { "type": "string" },
+        "minOrder": { "type": "number" },
+        "maxDiscount": { "type": "number" },
+        "usageLimit": { "type": "number" },
+        "usageCount": { "type": "number" },
+        "perUserLimit": { "type": "number" },
+        "expiry": { "type": "string" },
+        "allowedMembershipPlans": { "type": "array" }
+      }
+    },
+    "SavedPaymentMethod": {
+      "title": "SavedPaymentMethod",
+      "description": "Saved cards, UPI handles, net banking credentials",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string" },
+        "label": { "type": "string" },
+        "isDefault": { "type": "boolean" },
+        "provider": { "type": "string" }
+      }
+    },
+    "UserAddress": {
+      "title": "UserAddress",
+      "description": "User specific delivery address hotspots",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "label": { "type": "string" },
+        "customLabel": { "type": "string" },
+        "fullAddress": { "type": "string" },
+        "landmark": { "type": "string" },
+        "instructions": { "type": "string" },
+        "coords": { "type": "object" },
+        "isDefault": { "type": "boolean" },
+        "geoValidated": { "type": "boolean" }
+      }
+    },
+    "CommunicationThread": {
+      "title": "CommunicationThread",
+      "description": "Chat channels supporting live customer/merchant support",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string" },
+        "otherId": { "type": "string" },
+        "lastMessageText": { "type": "string" },
+        "lastMessageTime": { "type": "object" },
+        "status": { "type": "string" }
+      }
+    },
+    "CommunicationMessage": {
+      "title": "CommunicationMessage",
+      "description": "Messages inside unified chat channels",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "threadId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "attachmentUrl": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "object" }
+      }
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "Public and private details of users"
+    },
+    "/partners/{partnerId}/branches/{branchId}": {
+      "schema": "Branch",
+      "description": "Multi-branch outlets"
+    },
+    "/restaurants/{restaurantId}/menu/{itemId}": {
+      "schema": "object",
+      "description": "Menu catalog for selected branch"
+    },
+    "/restaurants/{restaurantId}/inventory/{itemId}": {
+      "schema": "Inventory",
+      "description": "Inventory and stock monitoring"
+    },
+    "/restaurants/{restaurantId}/staff/{staffId}": {
+      "schema": "Staff",
+      "description": "Branch employee permissions and records"
+    },
+    "/restaurants/{restaurantId}/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Branch customer ratings and replies"
+    },
+    "/restaurants/{restaurantId}/coupons/{couponId}": {
+      "schema": "Coupon",
+      "description": "Promo codes and happy hour deals"
+    },
+    "/users/{userId}/saved_addresses/{addressId}": {
+      "schema": "SavedAddress",
+      "description": "User saved address spots"
     },
     "/wallets/{userId}": {
       "schema": "Wallet",
@@ -152,6 +536,134 @@
     "/supportTickets/{ticketId}": {
       "schema": "SupportTicket",
       "description": "Customer support threads"
+    },
+    "/restaurants/{restaurantId}": {
+      "schema": "object",
+      "description": "Public restaurants directory"
+    },
+    "/restaurant_menu/{menuId}": {
+      "schema": "object",
+      "description": "Public restaurant menu directory"
+    },
+    "/food_coupons/{couponId}": {
+      "schema": "object",
+      "description": "Available food delivery promo coupons"
+    },
+    "/food_favorites/{favId}": {
+      "schema": "object",
+      "description": "User favorite food items"
+    },
+    "/food_orders/{orderId}": {
+      "schema": "object",
+      "description": "Food delivery orders logs"
+    },
+    "/food_analytics/{id}": {
+      "schema": "object",
+      "description": "Public and user food clicks analytics"
+    },
+    "/food_recent_searches/{userId}": {
+      "schema": "object",
+      "description": "User recent food search terms"
+    },
+    "/linked_accounts/{docId}": {
+      "schema": "object",
+      "description": "User connected aggregator platforms"
+    },
+    "/provider_orders/{poId}": {
+      "schema": "object",
+      "description": "Sub-orders routed to specific merchant providers"
+    },
+    "/provider_transactions/{ptId}": {
+      "schema": "object",
+      "description": "Sub-transactions processed for order splits"
+    },
+    "/master_orders/{moId}": {
+      "schema": "object",
+      "description": "Aggregated multi-provider checkout orders"
+    },
+    "/transactions/{txnId}": {
+      "schema": "object",
+      "description": "User financial transaction ledgers"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "object",
+      "description": "Security and administrative audit logs"
+    },
+    "/admin_settings/{settingsId}": {
+      "schema": "object",
+      "description": "Super admin system configurations"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Centralized orders collection across all verticals"
+    },
+    "/order_events/{eventId}": {
+      "schema": "OrderEvent",
+      "description": "Timeline log events of any state change"
+    },
+    "/driver_locations/{driverId}": {
+      "schema": "DriverLocation",
+      "description": "Real-time location coordinate stream for drivers"
+    },
+    "/driver_assignments/{assignmentId}": {
+      "schema": "DriverAssignment",
+      "description": "Pending and past order assignments for dispatching"
+    },
+    "/driver_history/{historyId}": {
+      "schema": "DriverHistory",
+      "description": "Audit trails for dispatch drivers"
+    },
+    "/delivery_routes/{routeId}": {
+      "schema": "DeliveryRoute",
+      "description": "Navigation routes mapped for order dispatching"
+    },
+    "/refunds/{refundId}": {
+      "schema": "Refund",
+      "description": "Disputed refund requests and tracking"
+    },
+    "/support_chats/{chatId}": {
+      "schema": "SupportChat",
+      "description": "Order specific customer support chats"
+    },
+    "/order_tracking/{trackingId}": {
+      "schema": "OrderTracking",
+      "description": "Live location updates history of orders"
+    },
+    "/reward_rules/{ruleId}": {
+      "schema": "RewardRule",
+      "description": "Loyalty earn and redeem point rules configuration"
+    },
+    "/reward_transactions/{txnId}": {
+      "schema": "RewardTransaction",
+      "description": "Historical loyalty points earnings or spend events"
+    },
+    "/membership_plans/{planId}": {
+      "schema": "MembershipPlan",
+      "description": "Core subscription levels of the application"
+    },
+    "/memberships/{userId}": {
+      "schema": "UserMembership",
+      "description": "Active and past subscriptions of user accounts"
+    },
+    "/coupon_campaigns/{campaignId}": {
+      "schema": "CouponCampaign",
+      "description": "Coupons, discounts, bogo limits and active dates"
+    },
+    "/saved_payment_methods/{paymentId}": {
+      "schema": "SavedPaymentMethod",
+      "description": "Saved tokenized bank cards and UPI profiles"
+    },
+    "/user_addresses/{addressId}": {
+      "schema": "UserAddress",
+      "description": "Saved delivery addresses"
+    },
+    "/communication_threads/{threadId}": {
+      "schema": "CommunicationThread",
+      "description": "Support, driver, merchant, and AI help chat logs"
+    },
+    "/communication_messages/{messageId}": {
+      "schema": "CommunicationMessage",
+      "description": "Unified communications chat records"
     }
   }
 }

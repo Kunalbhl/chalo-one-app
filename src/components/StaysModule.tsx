@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { HOTELS_CATALOG } from '../data';
+import { CommerceDataInstance } from '../services/data/CommerceDataMapper';
+
 import { HotelOption, StayQuery } from '../types';
 import { Bed, Calendar, Users, MapPin, Sparkles, Star, Tag, Info, ShieldCheck, CheckCircle2, ArrowLeft, Check, Compass, CreditCard, Gift, Heart, HelpCircle, Map, Plus, Tv, Wifi, X, ShieldAlert, SlidersHorizontal } from 'lucide-react';
 import ChaloMapView from './ChaloMapView';
+import { BookingService } from '../services/bookingService';
+import { doc, collection } from 'firebase/firestore';
+import { db } from '../firebase';
 
 interface StaysModuleProps {
   addOrderToActivity: (order: any) => void;
@@ -163,7 +167,7 @@ export default function StaysModule({
     }
   };
 
-  const handleFinalStayPayment = () => {
+  const handleFinalStayPayment = async () => {
     if (!selectedHotel || !selectedDeal) return;
 
     const nights = calculateDays();
@@ -174,8 +178,10 @@ export default function StaysModule({
 
     setSelectedBookings(prev => ({ ...prev, [selectedHotel.id]: selectedDeal.platform }));
 
+    const orderId = doc(collection(db, 'users')).id;
+
     addOrderToActivity({
-      id: "CHALO-STAY-" + Math.floor(100000 + Math.random() * 900000),
+      id: orderId,
       category: 'stays',
       platform: selectedDeal.platform,
       merchant: selectedHotel.name,
@@ -189,30 +195,21 @@ export default function StaysModule({
       paymentMethod: selectedPaymentMethod === 'UPI_GPAY' ? 'UPI AutoPay Verified' : selectedPaymentMethod === 'CHALO_WALLET' ? 'Chalo Wallet Split Settlement' : 'Credit Card Visa Sync'
     });
 
-    // Securely Sync to Commission Junction (CJ) Affiliate Program if booked via Booking.com
-    if (selectedDeal.platform.toLowerCase().includes("booking") || selectedDeal.platform.toLowerCase().includes("bcom")) {
-      fetch('/api/affiliate/booking', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hotelName: selectedHotel.name,
-          amount: finalFare > 0 ? finalFare : 0,
-          platform: selectedDeal.platform,
-          guestName: guestName,
-          guests: guests,
-          nights: nights,
-          rooms: rooms,
-          checkIn: checkIn,
-          checkOut: checkOut
-        })
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.synced) {
-          console.log(`[CJ Affiliate Link] Successfully registered booking ${data.trackingId} under Kunal's CJ profile.`);
-        }
-      })
-      .catch(err => console.error("CJ Sync Error:", err));
+    if (userProfile?.id && (selectedDeal.platform.toLowerCase().includes("booking") || selectedDeal.platform.toLowerCase().includes("bcom"))) {
+      await BookingService.recordBooking(userProfile.id, {
+        bookingId: orderId,
+        hotelId: selectedHotel.id,
+        hotelName: selectedHotel.name,
+        city: destination,
+        country: "India", // Default or extract
+        status: 'confirmed',
+        affiliateTrackingId: `TRK-${userProfile.id}-${selectedHotel.id}-${new Date().toISOString().split('T')[0]}`,
+        bookingValue: finalFare > 0 ? finalFare : 0,
+        currency: 'INR',
+        estimatedCommission: (finalFare > 0 ? finalFare : 0) * 0.12,
+        confirmedCommission: 0,
+        paymentStatus: 'paid'
+      });
     }
 
     alert(`Hooray! Stay at ${selectedHotel.name} booked successfully. Added to your ongoing activities list.`);
@@ -226,58 +223,18 @@ export default function StaysModule({
     setCouponInputText('');
   };
 
-  const handleBookHotel = (hotel: HotelOption, platform: string, totalFare: number) => {
-    setSelectedBookings(prev => ({ ...prev, [hotel.id]: platform }));
-
-    addOrderToActivity({
-      id: "CHALO-STAY-" + Math.floor(100000 + Math.random() * 900000),
-      category: 'stays',
-      platform,
-      merchant: hotel.name,
-      title: `${hotel.name} Booking`,
-      subtitle: `${guests} Guests, ${rooms} Room(s) • ${calculateDays()} night(s)`,
-      date: "Stay Confirmed",
-      time: `${checkIn} to ${checkOut}`,
-      amount: totalFare,
-      status: 'upcoming',
-      statusLabel: 'Upcoming Stay',
-      paymentMethod: 'Credit Card Split Settlement'
-    });
-  };
-
   const calculateTotalFare = (pricePerNight: number, taxes: number) => {
     const nights = calculateDays();
     return (pricePerNight * nights * rooms) + taxes;
   };
 
-  // Filter and Sort based on destination search, star rating and price ranges
-  const filteredHotels = [...HOTELS_CATALOG].filter(hotel => {
-    const matchesSearch = hotel.name.toLowerCase().includes(destination.toLowerCase()) ||
-      hotel.distance.toLowerCase().includes(destination.toLowerCase());
-    
-    const matchesStars = stayFilterStars === 'All' || hotel.stars === Number(stayFilterStars);
+  const [filteredHotels, setFilteredHotels] = useState<HotelOption[]>([]);
 
-    const matchesPlatform = stayFilterPlatform === 'All' || hotel.comparisons.some(c => 
-      c.platform.toLowerCase().includes(stayFilterPlatform.toLowerCase())
-    );
-
-    return matchesSearch && matchesStars && matchesPlatform;
-  }).sort((a, b) => {
-    const getCheapestPrice = (h: typeof a) => {
-      return Math.min(...h.comparisons.map(c => c.pricePerNight));
-    };
-
-    if (localPreferenceMode === 'cheapest') {
-      return getCheapestPrice(a) - getCheapestPrice(b);
-    } else if (localPreferenceMode === 'fastest') {
-      // Direct high quality properties sort (star classification descending)
-      return b.stars - a.stars;
-    } else if (localPreferenceMode === 'rated') {
-      return b.rating - a.rating;
-    } else {
-      return 0; // default
-    }
-  });
+  useEffect(() => {
+    BookingService.searchHotels(destination, stayFilterStars, stayFilterPlatform, localPreferenceMode)
+      .then(results => setFilteredHotels(results))
+      .catch(err => console.error("Error searching hotels:", err));
+  }, [destination, stayFilterStars, stayFilterPlatform, localPreferenceMode]);
 
   return (
     <div id="stays_module_container" className="p-4 max-w-6xl mx-auto space-y-6 font-sans text-gray-800">
@@ -840,9 +797,31 @@ export default function StaysModule({
                       </button>
                     )}
                     <a
-                      href={`https://www.booking.com/searchresults.html?ss=${encodeURIComponent(selectedHotel.name)}&aid=2039203`}
+                      href={BookingService.generateAffiliateLink(selectedHotel.name, destination, `TRK-${userProfile?.id || 'anon'}-${selectedHotel.id}`, 'hotel_details_button')}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={(e) => {
+                        if (userProfile?.id && selectedDeal.platform.toLowerCase().includes("booking")) {
+                          const trackingId = `TRK-${userProfile.id}-${selectedHotel.id}-${new Date().toISOString().split('T')[0]}`;
+                          BookingService.trackAffiliateClick(userProfile.id, {
+                            userId: userProfile.id,
+                            hotelId: selectedHotel.id,
+                            hotelName: selectedHotel.name,
+                            destination: destination,
+                            country: 'India', // Example
+                            checkIn: checkIn,
+                            checkOut: checkOut,
+                            rooms: rooms,
+                            guests: guests,
+                            campaign: 'hotel_details_button',
+                            affiliateUrl: BookingService.generateAffiliateLink(selectedHotel.name, destination, trackingId, 'hotel_details_button'),
+                            trackingId: trackingId,
+                            device: navigator.userAgent,
+                            platform: 'web',
+                            browser: navigator.vendor
+                          }).catch(err => console.warn('Failed to track affiliate click:', err));
+                        }
+                      }}
                       className="w-full py-2 bg-slate-900 hover:bg-black text-white text-[10px] font-black uppercase rounded-xl tracking-wider transition block text-center cursor-pointer"
                     >
                       Visit Booking.com ↗

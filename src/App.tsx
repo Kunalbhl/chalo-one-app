@@ -1,12 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import { initializeProviders } from './services/providers/ProviderInit';
+import { safeStorage, safeSessionStorage } from './utils/storage';
+import { ConfigService } from './services/configService';
+import React, { useState, useEffect, useCallback } from 'react';
 // @ts-ignore
 import appLogo from './assets/images/logo.png';
-import { db, auth } from './firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db, auth, getAppCheckToken } from './firebase';
+import { APIProvider } from '@vis.gl/react-google-maps';
+import { WriteGuard } from './services/WriteGuard';
+import { doc, getDoc, setDoc, serverTimestamp, collection, deleteDoc, getDocs, writeBatch, query, where, onSnapshot } from 'firebase/firestore'; 
+
+
 import { AuthService } from './services/authService';
 import { FirestoreService } from './services/firestoreService';
 import { WalletService } from './services/walletService';
 import { NotificationService } from './services/notificationService';
+import { setCachedRBACProfile } from './security/rbac';
+import { mapService } from './services/mapService';
+
+const printedLogs = new Set<string>();
+function logOnce(msg: string) {
+  if (!printedLogs.has(msg)) {
+    printedLogs.add(msg);
+    console.log(msg);
+  }
+}
 import { 
   UserProfile, 
   Address, 
@@ -36,12 +53,12 @@ import ReferralAndWallet from './components/ReferralAndWallet';
 import AccountPage from './components/AccountPage';
 import ActivityCenter from './components/ActivityCenter';
 import UnifiedCart from './components/UnifiedCart';
+import NotificationDropdown from './components/NotificationDropdown';
 import BiometricShield from './components/BiometricShield';
 import LoginSignup from './components/LoginSignup';
 import BillsModule from './components/BillsModule';
 import ChaloMapView from './components/ChaloMapView';
 import CommuteAlertSystem from './components/CommuteAlertSystem';
-import { FOOD_ITEMS, MART_ITEMS } from './data';
 
 import { 
   Home as HomeIcon, 
@@ -82,14 +99,20 @@ const weeklySavingsData = [
   { week: 'Wk 5', Cab: 150, Food: 120, Grocery: 95, Total: 365 },
 ];
 
+const MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+
 export default function App() {
+    useEffect(() => {
+    initializeProviders();
+  }, []);
+
   const [activeTab, setActiveTabRaw] = useState<string>('home');
   const [tabHistory, setTabHistory] = useState<string[]>([]);
   const [moduleBackHandler, setModuleBackHandler] = useState<(() => boolean) | null>(null);
 
-  const registerModuleBackHandler = (handler: (() => boolean) | null) => {
+  const registerModuleBackHandler = useCallback((handler: (() => boolean) | null) => {
     setModuleBackHandler(() => handler);
-  };
+  }, []);
 
   const setActiveTab = (tab: string | ((prev: string) => string)) => {
     const nextTab = typeof tab === 'function' ? tab(activeTab) : tab;
@@ -133,7 +156,7 @@ export default function App() {
     setActiveTab('preferences');
   };
   const [showFloatingChat, setShowFloatingChat] = useState<boolean>(false);
-  const [showNotificationCenter, setShowNotificationCenter] = useState<boolean>(true);
+  const [showNotificationCenter, setShowNotificationCenter] = useState<boolean>(false);
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState<boolean>(false);
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
 
@@ -165,6 +188,7 @@ export default function App() {
 
   // Chalo login persistence state
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [isInitializing, setIsInitializing] = useState<boolean>(true);
 
   // 1. User Profile context (Cleaned of any hardcoded admin or dummy account)
   const [userProfile, setUserProfile] = useState<UserProfile>({
@@ -192,15 +216,14 @@ export default function App() {
     planner: true
   };
 
-  const [featureToggles, setFeatureToggles] = useState<any>(() => {
-    const saved = localStorage.getItem('chalo_feature_toggles');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return DEFAULT_FEATURE_TOGGLES;
-  });
+  const [featureToggles, setFeatureToggles] = useState<any>({});
+
+  useEffect(() => {
+    const unsubscribe = ConfigService.subscribeToFeatures((features) => {
+      setFeatureToggles(features);
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (!db) return;
@@ -212,7 +235,7 @@ export default function App() {
           const data = docSnap.data();
           if (data && data.toggles) {
             setFeatureToggles(data.toggles);
-            localStorage.setItem('chalo_feature_toggles', JSON.stringify(data.toggles));
+            safeStorage.setItem('chalo_feature_toggles', JSON.stringify(data.toggles));
           }
         }
       } catch (e) {
@@ -224,7 +247,7 @@ export default function App() {
 
   const saveFeatureToggles = async (toggles: any) => {
     setFeatureToggles(toggles);
-    localStorage.setItem('chalo_feature_toggles', JSON.stringify(toggles));
+    safeStorage.setItem('chalo_feature_toggles', JSON.stringify(toggles));
     if (!db) return;
     try {
       const configDocRef = doc(db, 'system_config', 'features');
@@ -232,7 +255,7 @@ export default function App() {
         id: 'features',
         toggles,
         updatedBy: userProfile?.email || 'unknown_user',
-        updatedAt: new Date().toISOString()
+        updatedAt: serverTimestamp()
       }, { merge: true });
       console.log("Feature toggles updated in Firestore successfully.");
     } catch (e) {
@@ -268,45 +291,13 @@ export default function App() {
   }, [activeTab, featureToggles]);
 
   // Saved Utility Bills state with local storage preservation
-  const [savedBills, setSavedBills] = useState<SavedBill[]>(() => {
-    const saved = localStorage.getItem('chalo_saved_bills');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.warn('Stale bills in local storage, fallback to default');
-      }
-    }
-    return [
-      {
-        id: 'BILL-001',
-        category: 'Electricity',
-        billerName: 'BESCOM Karnataka',
-        consumerId: '5409211082',
-        amount: 840.00,
-        dueDate: '2026-07-15',
-        status: 'unpaid'
-      },
-      {
-        id: 'BILL-002',
-        category: 'Broadband',
-        billerName: 'ACT Fibernet Bangalore',
-        consumerId: 'ACT11049282',
-        amount: 1150.00,
-        dueDate: '2026-07-10',
-        status: 'unpaid'
-      }
-    ];
-  });
+  const [savedBills, setSavedBills] = useState<SavedBill[]>([]);
 
-  // Sync saved bills to local storage whenever they change
-  useEffect(() => {
-    localStorage.setItem('chalo_saved_bills', JSON.stringify(savedBills));
-  }, [savedBills]);
+  
 
   // 2. Chalo wallet balances with account-specific local storage preservation
   const [wallet, setWallet] = useState<ChaloWallet>(() => {
-    const savedProfileStr = localStorage.getItem('chalo_user_profile');
+    const savedProfileStr = safeStorage.getItem('chalo_user_profile');
     let emailKey = 'guest';
     if (savedProfileStr) {
       try {
@@ -314,7 +305,7 @@ export default function App() {
         if (p?.email) emailKey = p.email.toLowerCase();
       } catch (e) {}
     }
-    const saved = localStorage.getItem(`chalo_wallet_${emailKey}`);
+    const saved = safeStorage.getItem(`chalo_wallet_${emailKey}`);
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -338,7 +329,7 @@ export default function App() {
 
   // 3. User Search settings with account-specific local storage preservation
   const [preferences, setPreferences] = useState<AppPreferences>(() => {
-    const savedProfileStr = localStorage.getItem('chalo_user_profile');
+    const savedProfileStr = safeStorage.getItem('chalo_user_profile');
     let emailKey = 'guest';
     if (savedProfileStr) {
       try {
@@ -346,7 +337,7 @@ export default function App() {
         if (p?.email) emailKey = p.email.toLowerCase();
       } catch (e) {}
     }
-    const saved = localStorage.getItem(`chalo_preferences_${emailKey}`);
+    const saved = safeStorage.getItem(`chalo_preferences_${emailKey}`);
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -410,7 +401,7 @@ export default function App() {
 
   const recordSecurityLog = (attempt: Omit<BiometricLog, 'id' | 'timestamp'>) => {
     const newLog: BiometricLog = {
-      id: 'SEC-LOG-' + Math.floor(100000 + Math.random() * 900000),
+      id: 'SEC-LOG-' + crypto.randomUUID().slice(0, 8),
       timestamp: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
       ...attempt
     };
@@ -432,46 +423,38 @@ export default function App() {
 
   // Auto-fetch current GPS location on first session load/reload
   useEffect(() => {
-    if (isLoggedIn && sessionStorage.getItem('chalo_gps_auto_fetched') !== 'true') {
+    if (isLoggedIn && safeSessionStorage.getItem('chalo_gps_auto_fetched') !== 'true') {
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (position) => {
             const lat = position.coords.latitude;
             const lng = position.coords.longitude;
             
-            if (window.google && window.google.maps && window.google.maps.Geocoder) {
-              const geocoder = new window.google.maps.Geocoder();
-              geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-                if (status === 'OK' && results && results[0]) {
-                  const resolved = results[0].formatted_address;
-                  setCurrentSelectedLocation(resolved);
-                  setGpsResolvedAddress(resolved);
-                  setGpsCoordinates(`Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`);
-                  sessionStorage.setItem('chalo_gps_auto_fetched', 'true');
-                } else {
-                  const fallbackAdd = `GPS Sourced: Sector 15, Gurgaon (Coords: ${lat.toFixed(4)}, ${lng.toFixed(4)})`;
-                  setCurrentSelectedLocation(fallbackAdd);
-                  setGpsResolvedAddress(fallbackAdd);
-                  sessionStorage.setItem('chalo_gps_auto_fetched', 'true');
-                }
-              });
-            } else {
-              fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
-                .then(res => res.json())
-                .then(data => {
-                  const resolved = data && data.display_name ? data.display_name : `Sourced GPS: Sector 6, Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`;
-                  setCurrentSelectedLocation(resolved);
-                  setGpsResolvedAddress(resolved);
-                  setGpsCoordinates(`Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`);
-                  sessionStorage.setItem('chalo_gps_auto_fetched', 'true');
-                })
-                .catch(() => {
-                  const fallbackAdd = `Sourced GPS: Sector 6, Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`;
-                  setCurrentSelectedLocation(fallbackAdd);
-                  setGpsResolvedAddress(fallbackAdd);
-                  sessionStorage.setItem('chalo_gps_auto_fetched', 'true');
-                });
-            }
+            mapService.reverseGeocode(lat, lng).then((response) => {
+              if (response.success && response.data) {
+                const resolved = response.data.formattedAddress;
+                setCurrentSelectedLocation(resolved);
+                setGpsResolvedAddress(resolved);
+                setGpsCoordinates(`Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`);
+                safeSessionStorage.setItem('chalo_gps_auto_fetched', 'true');
+              } else {
+                fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+                  .then(res => res.json())
+                  .then(data => {
+                    const resolved = data && data.display_name ? data.display_name : `Sourced GPS: Sector 6, Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`;
+                    setCurrentSelectedLocation(resolved);
+                    setGpsResolvedAddress(resolved);
+                    setGpsCoordinates(`Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`);
+                    safeSessionStorage.setItem('chalo_gps_auto_fetched', 'true');
+                  })
+                  .catch(() => {
+                    const fallbackAdd = `Sourced GPS: Sector 6, Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`;
+                    setCurrentSelectedLocation(fallbackAdd);
+                    setGpsResolvedAddress(fallbackAdd);
+                    safeSessionStorage.setItem('chalo_gps_auto_fetched', 'true');
+                  });
+              }
+            });
           },
           (error) => {
             console.warn("Auto startup GPS failed, using smart default office address", error);
@@ -479,14 +462,14 @@ export default function App() {
             setCurrentSelectedLocation(fallbackAdd);
             setGpsResolvedAddress(fallbackAdd);
             setGpsCoordinates("Lat: 12.93524, Lng: 77.62451");
-            sessionStorage.setItem('chalo_gps_auto_fetched', 'true');
+            safeSessionStorage.setItem('chalo_gps_auto_fetched', 'true');
           },
           { enableHighAccuracy: true, timeout: 8000 }
         );
       } else {
         const fallbackAdd = "Koramangala 4th Block, Bengaluru, Karnataka 560034";
         setCurrentSelectedLocation(fallbackAdd);
-        sessionStorage.setItem('chalo_gps_auto_fetched', 'true');
+        safeSessionStorage.setItem('chalo_gps_auto_fetched', 'true');
       }
     }
   }, [isLoggedIn]);
@@ -497,7 +480,7 @@ export default function App() {
       const currentCode = userProfile.referralCode || '';
       if (!currentCode.startsWith('CHALO')) {
         const cleanName = userProfile.name.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 5);
-        const randomNum = Math.floor(100 + Math.random() * 900);
+        const randomNum = Date.now() % 1000;
         const upgradedCode = `CHALO${cleanName}${randomNum}`;
         
         const updatedProfile = {
@@ -505,13 +488,13 @@ export default function App() {
           referralCode: upgradedCode
         };
         setUserProfile(updatedProfile);
-        localStorage.setItem('chalo_user_profile', JSON.stringify(updatedProfile));
+        safeStorage.setItem('chalo_user_profile', JSON.stringify(updatedProfile));
 
         // Persist profile updates directly to Firebase database
         if (db && auth.currentUser) {
           try {
             const userDocRef = doc(db, 'users', auth.currentUser.uid);
-            setDoc(userDocRef, {
+            WriteGuard.safeSet('users', auth.currentUser.uid, {
               name: updatedProfile.name || '',
               email: updatedProfile.email || '',
               phone: updatedProfile.phone || '',
@@ -519,13 +502,13 @@ export default function App() {
               gender: updatedProfile.gender || 'Male',
               photoURL: updatedProfile.avatarUrl || '',
               role: updatedProfile.role || 'user',
+              referralCode: updatedProfile.referralCode || '',
               emailVerified: auth.currentUser?.emailVerified || false,
-              lastLogin: new Date().toISOString()
-            }, { merge: true }).then(() => {
-              console.log("Upgraded referral details synced to Firebase Firestore.");
-            }).catch(err => {
-              console.warn("Could not sync upgraded referral to Firebase:", err);
+              lastLogin: serverTimestamp()
+            }, { merge: true }).catch(err => {
+              console.warn("Could not persist profile changes to Firebase Firestore:", err);
             });
+            console.log("Upgraded referral details synced to Firebase Firestore.");
           } catch (err) {
             console.warn("Could not persist profile changes to Firebase Firestore:", err);
           }
@@ -552,7 +535,7 @@ export default function App() {
 
   // 5. Saved frequently pickup drop hotspots
   const [savedAddresses, setSavedAddresses] = useState<Address[]>(() => {
-    const savedProfileStr = localStorage.getItem('chalo_user_profile');
+    const savedProfileStr = safeStorage.getItem('chalo_user_profile');
     let emailKey = 'guest';
     if (savedProfileStr) {
       try {
@@ -560,7 +543,7 @@ export default function App() {
         if (p?.email) emailKey = p.email.toLowerCase().trim();
       } catch (e) {}
     }
-    const saved = localStorage.getItem(`chalo_saved_addresses_${emailKey}`);
+    const saved = safeStorage.getItem(`chalo_saved_addresses_${emailKey}`);
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -581,7 +564,7 @@ export default function App() {
   // Sync active user profile to local storage whenever it changes
   useEffect(() => {
     if (userProfile) {
-      localStorage.setItem('chalo_user_profile', JSON.stringify(userProfile));
+      safeStorage.setItem('chalo_user_profile', JSON.stringify(userProfile));
     }
   }, [userProfile]);
 
@@ -589,7 +572,7 @@ export default function App() {
   useEffect(() => {
     if (userProfile?.email) {
       const emailKey = userProfile.email.toLowerCase().trim();
-      localStorage.setItem(`chalo_preferences_${emailKey}`, JSON.stringify(preferences));
+      safeStorage.setItem(`chalo_preferences_${emailKey}`, JSON.stringify(preferences));
     }
   }, [preferences, userProfile]);
 
@@ -597,7 +580,7 @@ export default function App() {
   useEffect(() => {
     if (userProfile?.email) {
       const emailKey = userProfile.email.toLowerCase().trim();
-      localStorage.setItem(`chalo_wallet_${emailKey}`, JSON.stringify(wallet));
+      safeStorage.setItem(`chalo_wallet_${emailKey}`, JSON.stringify(wallet));
     }
   }, [wallet, userProfile]);
 
@@ -605,7 +588,7 @@ export default function App() {
   useEffect(() => {
     if (userProfile?.email) {
       const emailKey = userProfile.email.toLowerCase().trim();
-      localStorage.setItem(`chalo_saved_addresses_${emailKey}`, JSON.stringify(savedAddresses));
+      safeStorage.setItem(`chalo_saved_addresses_${emailKey}`, JSON.stringify(savedAddresses));
     }
   }, [savedAddresses, userProfile]);
 
@@ -613,7 +596,7 @@ export default function App() {
   useEffect(() => {
     if (userProfile?.email) {
       const emailKey = userProfile.email.toLowerCase().trim();
-      localStorage.setItem(`chalo_connected_accounts_${emailKey}`, JSON.stringify(connectedAccounts));
+      safeStorage.setItem(`chalo_connected_accounts_${emailKey}`, JSON.stringify(connectedAccounts));
     }
   }, [connectedAccounts, userProfile]);
 
@@ -768,31 +751,58 @@ export default function App() {
     let unsubscribeDoc: (() => void) | null = null;
 
     const unsubscribeAuth = AuthService.onAuthChanged(async (user) => {
+      setIsInitializing(false);
       if (user) {
         setIsLoggedIn(true);
+        logOnce('✓ User Authenticated');
+
+        // Pre-bootstrap user session so all 6 collections are guaranteed to exist with full schemas
+        AuthService.bootstrapUserSession(user).catch(err => {
+          console.warn("Error during session bootstrap:", err);
+        });
         
         // Listen to real-time updates across decoupled secure collections from Firestore
-        const unsubProfile = FirestoreService.subscribeDocument<any>('users', user.uid, (cloudData) => {
+        const unsubProfile = FirestoreService.subscribeDocument<any>('users', user.uid, async (cloudData) => {
           if (cloudData) {
-            const mappedProfile: UserProfile = {
-              id: user.uid,
-              name: cloudData.name || '',
-              email: cloudData.email || '',
-              phone: cloudData.phone || '',
-              dob: cloudData.dob || '',
-              gender: cloudData.gender || 'Male',
-              savedAddresses: [],
-              referralCode: `CHALO${user.uid.substring(user.uid.length - 5).toUpperCase()}`,
-              avatarUrl: cloudData.photoURL || '',
-              role: cloudData.role || 'user'
-            };
-            setUserProfile(mappedProfile);
+            try {
+              // Automatically ensure all required model fields are filled and synced
+              const validatedData = await AuthService.ensureUserProfileFields(user.uid, cloudData, user.email || '', false);
+              
+              // Set cached profile for RBAC
+              setCachedRBACProfile(validatedData);
+
+              const mappedProfile: UserProfile = {
+                id: user.uid,
+                name: validatedData.name || '',
+                email: validatedData.email || '',
+                phone: validatedData.phone || '',
+                dob: validatedData.dob || '',
+                gender: validatedData.gender || 'Male',
+                savedAddresses: validatedData.savedAddresses || [],
+                referralCode: validatedData.referralCode || `CHALO${user.uid.substring(user.uid.length - 5).toUpperCase()}`,
+                avatarUrl: validatedData.avatarUrl || validatedData.photoURL || '',
+                photoURL: validatedData.photoURL || validatedData.avatarUrl || '',
+                role: validatedData.role || 'user',
+                emailVerified: user.emailVerified || validatedData.emailVerified || false,
+                lastLogin: validatedData.lastLogin,
+                createdAt: validatedData.createdAt,
+                updatedAt: validatedData.updatedAt
+              };
+              setUserProfile(mappedProfile);
+
+              logOnce('✓ User Profile Loaded');
+              logOnce('✓ RBAC Loaded');
+              logOnce('✓ Role Loaded');
+            } catch (err) {
+              console.warn("Failed to validate user profile fields:", err);
+            }
           }
         });
 
         const unsubWallet = FirestoreService.subscribeDocument<ChaloWallet>('wallets', user.uid, (cloudData) => {
           if (cloudData) {
             setWallet(cloudData);
+            logOnce('✓ Wallet Loaded');
           }
         });
 
@@ -802,11 +812,50 @@ export default function App() {
           }
         });
 
-        const unsubAddresses = FirestoreService.subscribeDocument<any>('addresses', user.uid, (cloudData) => {
-          if (cloudData && cloudData.addresses) {
-            setSavedAddresses(cloudData.addresses);
+        const unsubAddresses = FirestoreService.subscribeCollection<any>(
+          `users/${user.uid}/saved_addresses`,
+          [],
+          async (cloudData) => {
+            if (cloudData && cloudData.length > 0) {
+              const mapped = cloudData.map((data: any) => ({
+                id: data.id || `ADDR-${Date.now()}`,
+                label: data.name || data.label || 'Home',
+                addressLine: data.formattedAddress || data.addressLine || '',
+                landmark: data.landmark || '',
+                lat: data.latitude !== undefined ? data.latitude : data.lat,
+                lng: data.longitude !== undefined ? data.longitude : data.lng,
+                placeId: data.placeId || ''
+              }));
+              setSavedAddresses(mapped);
+            } else {
+              // Try to fetch legacy addresses document once to migrate
+              try {
+                const legacyData = await FirestoreService.getDocument<any>('addresses', user.uid);
+                if (legacyData && legacyData.addresses && legacyData.addresses.length > 0) {
+                  // Migrate legacy addresses to subcollection using an atomic writeBatch
+                  const batch = writeBatch(db);
+                  for (const addr of legacyData.addresses) {
+                    const docId = addr.id || `ADDR-${Date.now()}`;
+                    batch.set(doc(db, 'users', user.uid, 'saved_addresses', docId), {
+                      id: docId,
+                      name: addr.label || 'Home',
+                      formattedAddress: addr.addressLine || '',
+                      placeId: addr.placeId || addr.id || '',
+                      latitude: addr.lat !== undefined ? addr.lat : 0.0,
+                      longitude: addr.lng !== undefined ? addr.lng : 0.0,
+                      landmark: addr.landmark || '',
+                      createdAt: serverTimestamp(),
+                      updatedAt: serverTimestamp()
+                    }, { merge: true });
+                  }
+                  await batch.commit();
+                }
+              } catch (err) {
+                console.warn("Could not migrate legacy addresses:", err);
+              }
+            }
           }
-        });
+        );
 
         const unsubLogs = FirestoreService.subscribeDocument<any>('security_logs', user.uid, (cloudData) => {
           if (cloudData && cloudData.logs) {
@@ -820,6 +869,42 @@ export default function App() {
           }
         });
 
+        // Register real-time notifications subscription
+        const unsubNotifs = NotificationService.subscribe(user.uid, (data) => {
+          if (data) {
+            console.log("✓ Real-Time Notifications Loaded from Firestore, unread count:", data.unreadCount);
+          }
+        });
+
+        // Real-time Support Tickets subscription
+        const unsubTickets = onSnapshot(
+          query(collection(db, 'supportTickets'), where('userId', '==', user.uid)),
+          (snap) => {
+            const list: SupportTicket[] = [];
+            snap.forEach(docSnap => {
+              const data = docSnap.data();
+              list.push({
+                id: docSnap.id,
+                subject: data.subject || '',
+                category: data.category || '',
+                description: data.description || '',
+                status: data.status || 'Open',
+                createdAt: data.createdAt || '',
+                messages: data.messages || []
+              });
+            });
+            setSupportTickets(list);
+          }
+        );
+
+        // Initialize FCM registration and foreground notification handling safely
+        NotificationService.requestFCMToken(user.uid).catch(err => {
+          console.warn("FCM initial setup warning:", err);
+        });
+        NotificationService.initializeForegroundListener(user.uid).catch(err => {
+          console.warn("FCM foreground listener setup warning:", err);
+        });
+
         unsubscribeDoc = () => {
           unsubProfile();
           unsubWallet();
@@ -827,6 +912,8 @@ export default function App() {
           unsubAddresses();
           unsubLogs();
           unsubConnected();
+          unsubNotifs();
+          unsubTickets();
         };
       } else {
         setIsLoggedIn(false);
@@ -845,7 +932,7 @@ export default function App() {
     };
   }, [db]);
 
-  const persistFirebaseUpdate = async (
+    const persistFirebaseUpdate = async (
     updatedWallet: ChaloWallet, 
     updatedPrefs: AppPreferences, 
     updatedLogs?: BiometricLog[],
@@ -858,19 +945,22 @@ export default function App() {
     
     if (!db) return;
     try {
-      // 1. Update user profile document users/{uid} containing ONLY the specified 10 fields!
+      // 1. Update user profile document users/{uid} containing ONLY the specified fields!
       const userDocRef = doc(db, 'users', userId);
-      await setDoc(userDocRef, {
-        name: activeProfile.name || '',
-        email: activeProfile.email || '',
-        phone: activeProfile.phone || '',
-        dob: activeProfile.dob || '',
-        gender: activeProfile.gender || 'Male',
-        photoURL: activeProfile.avatarUrl || '',
-        role: activeProfile.role || 'user',
-        emailVerified: auth.currentUser?.emailVerified || false,
-        lastLogin: new Date().toISOString()
-      }, { merge: true });
+      const profileUpdates: any = {};
+      if (activeProfile.name) profileUpdates.name = activeProfile.name;
+      if (activeProfile.email) profileUpdates.email = activeProfile.email;
+      if (activeProfile.phone) profileUpdates.phone = activeProfile.phone;
+      if (activeProfile.dob) profileUpdates.dob = activeProfile.dob;
+      if (activeProfile.gender) profileUpdates.gender = activeProfile.gender;
+      if (activeProfile.avatarUrl) profileUpdates.avatarUrl = activeProfile.avatarUrl;
+      if (activeProfile.photoURL) profileUpdates.photoURL = activeProfile.photoURL;
+      if (activeProfile.role) profileUpdates.role = activeProfile.role;
+      if (activeProfile.referralCode) profileUpdates.referralCode = activeProfile.referralCode;
+      if (activeProfile.savedAddresses) profileUpdates.savedAddresses = activeProfile.savedAddresses;
+      profileUpdates.updatedAt = serverTimestamp();
+      
+      await setDoc(userDocRef, profileUpdates, { merge: true });
 
       // 2. Update wallet document wallets/{uid}
       await setDoc(doc(db, 'wallets', userId), updatedWallet, { merge: true });
@@ -880,6 +970,42 @@ export default function App() {
 
       // 4. Update saved addresses document addresses/{uid}
       await setDoc(doc(db, 'addresses', userId), { addresses: savedAddresses }, { merge: true });
+
+      // And ALSO update users/{uid}/saved_addresses subcollection using an atomic writeBatch
+      try {
+        const subColRef = collection(db, 'users', userId, 'saved_addresses');
+        const subSnap = await getDocs(subColRef);
+        const existingIds = new Set(savedAddresses.map(a => a.id));
+        const batch = writeBatch(db);
+        let hasOperations = false;
+
+        for (const d of subSnap.docs) {
+          if (!existingIds.has(d.id)) {
+            batch.delete(doc(db, 'users', userId, 'saved_addresses', d.id));
+            hasOperations = true;
+          }
+        }
+        for (const addr of savedAddresses) {
+          batch.set(doc(db, 'users', userId, 'saved_addresses', addr.id), {
+            id: addr.id,
+            name: addr.label,
+            formattedAddress: addr.addressLine,
+            placeId: addr.placeId || addr.id,
+            latitude: addr.lat !== undefined ? addr.lat : 0.0,
+            longitude: addr.lng !== undefined ? addr.lng : 0.0,
+            landmark: addr.landmark || '',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+          hasOperations = true;
+        }
+
+        if (hasOperations) {
+          await batch.commit();
+        }
+      } catch (subErr) {
+        console.warn('Failed to sync saved_addresses subcollection:', subErr);
+      }
 
       // 5. Update security logs document security_logs/{uid}
       if (updatedLogs !== undefined || securityAuditLogs.length > 0) {
@@ -912,32 +1038,27 @@ export default function App() {
         setGpsCoordinates(coordsStr);
         
         // Dynamic reverse geocoding using Google Maps API if available, else highly robust Nominatim fallback
-        if (window.google && window.google.maps && window.google.maps.Geocoder) {
-          const geocoder = new window.google.maps.Geocoder();
-          geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-            if (status === 'OK' && results && results[0]) {
-              setGpsResolvedAddress(results[0].formatted_address);
-            } else {
-              setGpsResolvedAddress(`Sourced Location, Sector 15 (Coords: ${lat.toFixed(5)}, ${lng.toFixed(5)})`);
-            }
+        mapService.reverseGeocode(lat, lng).then((response) => {
+          if (response.success && response.data) {
+            setGpsResolvedAddress(response.data.formattedAddress);
             setGpsFetching(false);
-          });
-        } else {
-          fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
-            .then(res => res.json())
-            .then(data => {
-              if (data && data.display_name) {
-                setGpsResolvedAddress(data.display_name);
-              } else {
+          } else {
+            fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+              .then(res => res.json())
+              .then(data => {
+                if (data && data.display_name) {
+                  setGpsResolvedAddress(data.display_name);
+                } else {
+                  setGpsResolvedAddress(`Sourced GPS: Sector 6, Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`);
+                }
+                setGpsFetching(false);
+              })
+              .catch(() => {
                 setGpsResolvedAddress(`Sourced GPS: Sector 6, Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`);
-              }
-              setGpsFetching(false);
-            })
-            .catch(() => {
-              setGpsResolvedAddress(`Sourced GPS: Sector 6, Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`);
-              setGpsFetching(false);
-            });
-        }
+                setGpsFetching(false);
+              });
+          }
+        });
       },
       (error) => {
         console.warn("GPS failed", error);
@@ -996,14 +1117,14 @@ export default function App() {
     }
     setSavedAddresses(updatedAddrs);
     const emailKey = userProfile?.email ? userProfile.email.toLowerCase().trim() : 'guest';
-    localStorage.setItem(`chalo_saved_addresses_${emailKey}`, JSON.stringify(updatedAddrs));
+    safeStorage.setItem(`chalo_saved_addresses_${emailKey}`, JSON.stringify(updatedAddrs));
     persistFirebaseUpdate(wallet, preferences);
   };
 
   // Add / Settle ongoing activities helper
   const addOrderToActivity = (activity: any) => {
     const formatted: OrderActivity = {
-      id: activity.id || "CHALO-SETTLED-" + Math.floor(100000 + Math.random() * 900000),
+      id: activity.id || "CHALO-SETTLED-" + crypto.randomUUID().slice(0, 8),
       category: activity.category || 'mart',
       platform: activity.platform || 'Blinkit',
       merchant: activity.merchant || 'Partner Store',
@@ -1017,6 +1138,27 @@ export default function App() {
       paymentMethod: activity.paymentMethod || 'UPI'
     };
     setActivities(prev => [formatted, ...prev]);
+
+    // Automatically trigger persistent Firestore notifications for system events
+    if (userProfile?.id) {
+      const uid = userProfile.id;
+      const platform = activity.platform || 'Partner';
+      const category = activity.category || 'mart';
+      const title = activity.title || 'Super-App Booking';
+      const status = activity.status || '';
+
+      if (category === 'rides') {
+        if (status === 'cancelled') {
+          NotificationService.notifyRideCancelled(uid, platform, activity.subtitle || 'Cab').catch(e => console.warn(e));
+        } else {
+          NotificationService.notifyRideBooked(uid, platform, activity.subtitle || 'Cab', activity.destination || 'Destination').catch(e => console.warn(e));
+        }
+      } else if (category === 'food' || category === 'mart') {
+        NotificationService.notifyFoodOrder(uid, platform, title).catch(e => console.warn(e));
+      } else if (category === 'stays') {
+        NotificationService.notifyHotelBooking(uid, platform, title, activity.date || 'Scheduled Date').catch(e => console.warn(e));
+      }
+    }
   };
 
   // Dynamic Personalization Engine based on repeating user habits and history
@@ -1072,7 +1214,7 @@ export default function App() {
         icon: freq.category === 'food' ? '🍔' : '🥛',
         action: () => {
           if (freq.category === 'food') {
-            const foundItem = FOOD_ITEMS.find(f => f.name === title) || {
+            const foundItem = {
               id: freq.item.id || 'f-custom',
               name: title,
               restaurant: freq.item.merchant || 'Restaurant',
@@ -1085,9 +1227,9 @@ export default function App() {
               image: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
               isVeg: true
             };
-            addToFoodCart(foundItem);
+            addToFoodCart(foundItem as any);
           } else {
-            const foundItem = MART_ITEMS.find(m => m.name === title) || {
+            const foundItem = {
               id: freq.item.id || 'm-custom',
               name: title,
               brand: freq.item.merchant || 'Store',
@@ -1096,7 +1238,7 @@ export default function App() {
               image: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=400&auto=format&fit=crop&q=60&ixlib=rb-4.0.3',
               prices: [{ platform: freq.item.platform as any || 'Blinkit', price: freq.item.amount, discountedPrice: freq.item.amount, deliveryTime: 10, inStock: true }]
             };
-            addMartToCart(foundItem, freq.item.platform);
+            addMartToCart(foundItem as any, freq.item.platform);
           }
           setActiveTab('checkout');
         }
@@ -1152,7 +1294,7 @@ export default function App() {
       points: wallet.points + pts,
       history: [
         {
-          id: 'TXN-' + Math.floor(100000 + Math.random() * 900000),
+          id: 'TXN-' + crypto.randomUUID().slice(0, 8),
           description: 'Earned loyalty comparative saver points',
           type: 'credit' as const,
           amount: 0.00,
@@ -1172,7 +1314,7 @@ export default function App() {
       balance: Math.max(0, wallet.balance - rs),
       history: [
         {
-          id: 'TXN-' + Math.floor(100000 + Math.random() * 900000),
+          id: 'TXN-' + crypto.randomUUID().slice(0, 8),
           description: 'Payment settlement via Chalo One Wallet Balance',
           type: 'debit' as const,
           amount: rs,
@@ -1225,7 +1367,7 @@ export default function App() {
         balance: Math.max(0, wallet.balance - amt),
         history: [
           {
-            id: 'TXN-' + Math.floor(100000 + Math.random() * 900000),
+            id: 'TXN-' + crypto.randomUUID().slice(0, 8),
             description: `Transfer money outward`,
             type: 'debit' as const,
             amount: amt,
@@ -1244,7 +1386,7 @@ export default function App() {
         balance: wallet.balance + cashAmount,
         history: [
           {
-            id: 'TXN-' + Math.floor(100000 + Math.random() * 900000),
+            id: 'TXN-' + crypto.randomUUID().slice(0, 8),
             description: 'Redeemed comparative saver points into Wallet Credit',
             type: 'credit' as const,
             amount: cashAmount,
@@ -1336,7 +1478,7 @@ export default function App() {
         points: prev.points + 2000,
         history: [
           {
-            id: 'TXN-' + Math.floor(100000 + Math.random() * 900000),
+            id: 'TXN-' + crypto.randomUUID().slice(0, 8),
             type: 'credit' as const,
             amount: 100.00,
             pointsSpentOrEarned: 2000,
@@ -1368,7 +1510,7 @@ export default function App() {
               points: (refDbData.points || 0) + 2000,
               history: [
                 {
-                  id: 'TXN-' + Math.floor(100000 + Math.random() * 900005),
+                  id: 'TXN-' + crypto.randomUUID().slice(0, 8),
                   type: 'credit',
                   amount: 100.00,
                   pointsSpentOrEarned: 2000,
@@ -1385,9 +1527,9 @@ export default function App() {
           await setDoc(doc(db, 'referrals', referrerUserId, 'joined', myUid), {
             name: userProfile.name,
             email: userProfile.email,
-            joinedAt: new Date().toISOString(),
+            joinedAt: serverTimestamp(),
             pointsAwarded: 2000
-          });
+          }, { merge: true });
         }
 
       } catch (e) {
@@ -1401,28 +1543,51 @@ export default function App() {
       referredBy: trimmedCode
     };
     setUserProfile(updatedProfile);
-    localStorage.setItem('chalo_user_profile', JSON.stringify(updatedProfile));
+    safeStorage.setItem('chalo_user_profile', JSON.stringify(updatedProfile));
     
     return { success: true, message: `Success! Both you and ${referrerName} have been allocated 2,000 points!` };
   };
 
-  const addSupportTicket = (ticket: SupportTicket) => {
-    setSupportTickets(prev => [ticket, ...prev]);
+  const addSupportTicket = async (ticket: SupportTicket) => {
+    if (!db) return;
+    try {
+      const ticketRef = doc(db, 'supportTickets', ticket.id);
+      await setDoc(ticketRef, {
+        id: ticket.id,
+        userId: auth.currentUser?.uid || userProfile.id || 'guest',
+        subject: ticket.subject,
+        category: ticket.category,
+        description: ticket.description,
+        status: ticket.status,
+        createdAt: ticket.createdAt,
+        messages: ticket.messages,
+        updatedAt: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Failed to add support ticket to Firestore:", err);
+    }
   };
 
-  const replyToTicket = (id: string, text: string) => {
-    setSupportTickets(prev => prev.map(t => {
-      if (t.id === id) {
-        return {
-          ...t,
-          messages: [
-            ...t.messages,
-            { sender: 'user', text, timestamp: new Date().toLocaleTimeString() }
-          ]
-        };
+  const replyToTicket = async (id: string, text: string) => {
+    if (!db) return;
+    try {
+      const ticketRef = doc(db, 'supportTickets', id);
+      const snap = await getDoc(ticketRef);
+      if (snap.exists()) {
+        const currentMessages = snap.data().messages || [];
+        const updatedMessages = [
+          ...currentMessages,
+          { sender: 'user', text, timestamp: new Date().toLocaleTimeString() }
+        ];
+        await setDoc(ticketRef, {
+          messages: updatedMessages,
+          status: 'In Progress',
+          updatedAt: serverTimestamp()
+        }, { merge: true });
       }
-      return t;
-    }));
+    } catch (err) {
+      console.error("Failed to reply to support ticket in Firestore:", err);
+    }
   };
 
   // Cart operations
@@ -1514,7 +1679,7 @@ export default function App() {
       balance: wallet.balance + amount,
       history: [
         {
-          id: 'TXN-' + Math.floor(100000 + Math.random() * 900000),
+          id: 'TXN-' + crypto.randomUUID().slice(0, 8),
           description: 'Added funds from simulated bank card',
           type: 'credit' as const,
           amount: amount,
@@ -1531,6 +1696,20 @@ export default function App() {
   // Helper to resolve currently selected bottom nav segment item
   const selectedBottomNode = ['activity', 'preferences'].includes(activeTab) ? activeTab : 'home';
 
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-6">
+        <div className="w-20 h-20 bg-amber-500 rounded-[28px] animate-pulse flex items-center justify-center">
+          <div className="w-10 h-10 border-4 border-slate-950 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+        <div className="space-y-1.5 text-center">
+          <h2 className="text-white font-display font-black text-xl tracking-tight uppercase">Initializing</h2>
+          <p className="text-amber-400 font-mono text-xs uppercase tracking-widest font-black animate-pulse">Chalo One Super App Core</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-slate-100 flex flex-col text-slate-900 font-sans tracking-tight antialiased">
@@ -1540,13 +1719,13 @@ export default function App() {
             onLoginSuccess={(profile) => {
               setUserProfile(profile);
               setIsLoggedIn(true);
-              localStorage.setItem('chalo_is_logged_in', 'true');
-              localStorage.setItem('chalo_user_profile', JSON.stringify(profile));
+              safeStorage.setItem('chalo_is_logged_in', 'true');
+              safeStorage.setItem('chalo_user_profile', JSON.stringify(profile));
 
               // Load user-specific states if they exist, else initialize defaults
               const emailKey = profile.email.toLowerCase();
               
-              const savedWallet = localStorage.getItem(`chalo_wallet_${emailKey}`);
+              const savedWallet = safeStorage.getItem(`chalo_wallet_${emailKey}`);
               if (savedWallet) {
                 try { setWallet(JSON.parse(savedWallet)); } catch (e) {}
               } else {
@@ -1557,7 +1736,7 @@ export default function App() {
                   balance: profile.referredBy ? 100.00 : 0.00,
                   history: profile.referredBy ? [
                     {
-                      id: 'TXN_' + Math.floor(100000 + Math.random() * 900000),
+                      id: 'TXN_' + crypto.randomUUID().slice(0, 8),
                       description: 'Referral welcome bonus',
                       type: 'credit',
                       amount: 100.00,
@@ -1568,7 +1747,7 @@ export default function App() {
                 });
               }
 
-              const savedPrefs = localStorage.getItem(`chalo_preferences_${emailKey}`);
+              const savedPrefs = safeStorage.getItem(`chalo_preferences_${emailKey}`);
               if (savedPrefs) {
                 try { setPreferences(JSON.parse(savedPrefs)); } catch (e) {}
               } else {
@@ -1586,14 +1765,14 @@ export default function App() {
                 });
               }
 
-              const savedAddrs = localStorage.getItem(`chalo_saved_addresses_${emailKey}`);
+              const savedAddrs = safeStorage.getItem(`chalo_saved_addresses_${emailKey}`);
               if (savedAddrs) {
                 try { setSavedAddresses(JSON.parse(savedAddrs)); } catch (e) {}
               } else {
                 setSavedAddresses([]);
               }
 
-              const savedLogs = localStorage.getItem(`chalo_security_audit_logs_${emailKey}`);
+              const savedLogs = safeStorage.getItem(`chalo_security_audit_logs_${emailKey}`);
               if (savedLogs) {
                 try { setSecurityAuditLogs(JSON.parse(savedLogs)); } catch (e) {}
               } else {
@@ -1607,7 +1786,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col text-slate-900 font-sans tracking-tight antialiased">
+    <APIProvider apiKey={MAPS_API_KEY} version="weekly" fetchAppCheckToken={getAppCheckToken}>
+      <div className="min-h-screen bg-slate-100 flex flex-col text-slate-900 font-sans tracking-tight antialiased">
       
       <motion.div 
         initial={{ opacity: 0, y: 15 }}
@@ -1710,6 +1890,21 @@ export default function App() {
                 <span className="hidden sm:inline">Refer & Earn</span>
                 <span className="sm:hidden">Refer</span>
               </motion.button>
+              
+              {/* Notification Center */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowNotificationCenter(!showNotificationCenter)}
+                  className="relative p-1.5 hover:bg-slate-800 rounded-xl transition cursor-pointer text-slate-300 shrink-0"
+                  title="Notifications"
+                >
+                  <Bell className="w-4.5 h-4.5" />
+                </button>
+                <AnimatePresence>
+                  {showNotificationCenter && <NotificationDropdown onClose={() => setShowNotificationCenter(false)} />}
+                </AnimatePresence>
+              </div>
 
               {/* Cart trigger with counts badge */}
               <button
@@ -2652,6 +2847,7 @@ export default function App() {
                   redirectToLinkedAccounts={redirectToLinkedAccounts}
                   onBackRegister={registerModuleBackHandler}
                   initialDestination={initialDestination}
+                  userProfile={userProfile}
                 />
               )}
 
@@ -2725,6 +2921,7 @@ export default function App() {
                   walletBalance={wallet.balance}
                   deductWalletCoins={deductWalletCoins}
                   addOrderToActivity={addOrderToActivity}
+                  userProfile={userProfile}
                 />
               )}
 
@@ -2778,6 +2975,7 @@ export default function App() {
                   addOrderToActivity={addOrderToActivity}
                   savedBills={savedBills}
                   setSavedBills={setSavedBills}
+                  userProfile={userProfile}
                 />
               )}
 
@@ -2806,7 +3004,7 @@ export default function App() {
                   setSavedAddresses={(addrs) => {
                     setSavedAddresses(addrs);
                     const emailKey = userProfile?.email ? userProfile.email.toLowerCase().trim() : 'guest';
-                    localStorage.setItem(`chalo_saved_addresses_${emailKey}`, JSON.stringify(addrs));
+                    safeStorage.setItem(`chalo_saved_addresses_${emailKey}`, JSON.stringify(addrs));
                     persistFirebaseUpdate(wallet, preferences);
                   }}
                   supportTickets={supportTickets}
@@ -2993,5 +3191,6 @@ export default function App() {
 
       </motion.div>
     </div>
+    </APIProvider>
   );
 }

@@ -68,7 +68,15 @@ export default function BiometricShield({
   // Handle active webcam stream during biometric scanning mode to allow "selfie" capture
   useEffect(() => {
     if (isOpen && authState === 'scanning' && authMode === 'faceid') {
-      navigator.mediaDevices.getUserMedia({ 
+      
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+         console.warn('Camera access unavailable/denied in preview: mediaDevices undefined');
+         setHasCamera(false);
+         setCameraPermissionError(true);
+         return;
+      }
+      navigator.mediaDevices.getUserMedia({
+ 
         video: { 
           width: { ideal: 320 }, 
           height: { ideal: 240 },

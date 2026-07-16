@@ -1,5 +1,9 @@
 export interface UserProfile {
   id: string;
+  firebaseUid?: string;
+  internalUserId?: string;
+  firstName?: string;
+  lastName?: string;
   name: string;
   phone: string;
   email: string;
@@ -9,7 +13,15 @@ export interface UserProfile {
   referralCode: string;
   referredBy?: string;
   avatarUrl?: string;
-  role?: 'super_admin' | 'affiliate_partner' | 'user';
+  role?: string;
+  status?: string;
+  createdBy?: string;
+  photoURL?: string;
+  emailVerified?: boolean;
+  suspended?: boolean;
+  lastLogin?: any;
+  createdAt?: any;
+  updatedAt?: any;
   affiliateDetails?: {
     companyName: string;
     domain: string;
@@ -26,11 +38,12 @@ export interface UserProfile {
 
 export interface Address {
   id: string;
-  label: 'Home' | 'Work' | 'Other';
+  label: 'Home' | 'Work' | 'Other' | string;
   addressLine: string;
   landmark?: string;
   lat?: number;
   lng?: number;
+  placeId?: string;
 }
 
 export interface ChaloWallet {
@@ -282,6 +295,8 @@ export interface SavedBill {
   status: 'Paid' | 'Unpaid' | 'Overdue';
   autoPayEnabled: boolean;
   lastPaidDate?: string;
+  billerName?: string;
+  amount?: number;
 }
 
 

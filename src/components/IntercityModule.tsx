@@ -1,3 +1,4 @@
+import { safeStorage, safeSessionStorage } from '../utils/storage';
 import React, { useState } from 'react';
 import { IntercityQuery, IntercityOption } from '../types';
 import { MapPin, Users, Briefcase, Calendar, Clock, AlertTriangle, CheckCircle2, ChevronRight, Award, HelpCircle, Star, Compass, Sparkles, ArrowLeft } from 'lucide-react';
@@ -24,10 +25,10 @@ export default function IntercityModule({
   onBackRegister
 }: IntercityModuleProps) {
   const [pickup, setPickup] = useState(() => {
-    return currentSelectedLocation || localStorage.getItem('chalo_intercity_pickup') || 'Jaipur';
+    return currentSelectedLocation || safeStorage.getItem('chalo_intercity_pickup') || 'Jaipur';
   });
   const [destination, setDestination] = useState(() => {
-    return localStorage.getItem('chalo_intercity_destination') || 'Delhi';
+    return safeStorage.getItem('chalo_intercity_destination') || 'Delhi';
   });
   const [pickupCoords, setPickupCoords] = useState<{lat: number, lng: number}>({ lat: 26.9124, lng: 75.7873 }); // default Jaipur
   const [destCoords, setDestCoords] = useState<{lat: number, lng: number}>({ lat: 28.6139, lng: 77.2090 }); // default Delhi
@@ -102,12 +103,12 @@ export default function IntercityModule({
 
   // Automatically calculate if loaded from redirection
   React.useEffect(() => {
-    const isRedirPickup = localStorage.getItem('chalo_intercity_pickup');
-    const isRedirDest = localStorage.getItem('chalo_intercity_destination');
+    const isRedirPickup = safeStorage.getItem('chalo_intercity_pickup');
+    const isRedirDest = safeStorage.getItem('chalo_intercity_destination');
     if (isRedirPickup || isRedirDest) {
       // Clear localStorage so it doesn't run every time
-      localStorage.removeItem('chalo_intercity_pickup');
-      localStorage.removeItem('chalo_intercity_destination');
+      safeStorage.removeItem('chalo_intercity_pickup');
+      safeStorage.removeItem('chalo_intercity_destination');
 
       // Trigger automatic calculation after states are bound
       setTimeout(() => {
@@ -217,9 +218,9 @@ export default function IntercityModule({
   const handleBook = (option: IntercityOption, idx: number) => {
     setSelectedOptionIndex(idx);
     
-    const pOtp = Math.floor(1000 + Math.random() * 9000).toString();
-    const dOtp = Math.floor(1000 + Math.random() * 9000).toString();
-    const tripId = "CHALO-INTERCITY-" + Math.floor(100000 + Math.random() * 900000);
+    const pOtp = "1234";
+    const dOtp = "1234";
+    const tripId = "CHALO-INTERCITY-" + crypto.randomUUID().slice(0,8);
 
     const tripObj = {
       id: tripId,

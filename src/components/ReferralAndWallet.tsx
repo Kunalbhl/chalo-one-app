@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { ChaloWallet, WalletTransaction, ReferralState, UserProfile } from '../types';
-import { LEADERBOARD_WEEKLY, LEADERBOARD_MONTHLY, LEADERBOARD_ALLTIME } from '../data';
 import { Coins, Award, Users, Share2, QrCode, ArrowUpRight, HelpCircle, ArrowRightLeft, Gift, Zap, CheckCircle, AlertTriangle, CreditCard, Sparkles } from 'lucide-react';
 import { FirestoreService } from '../services/firestoreService';
 
@@ -126,7 +125,7 @@ export default function ReferralAndWallet({
 
     // Process subtraction internally
     redeemPointsToCash(-money * 20); // deducts money relative to the balance
-    alert(`Success! Sent ₹${money} instantly to +91 ${transferPhone}. Ref ID: TXN${Math.floor(1000000 + Math.random() * 9000000)}`);
+    alert(`Success! Sent ₹${money} instantly to +91 ${transferPhone}. Ref ID: TXN${parseInt(crypto.randomUUID().slice(0, 4), 16)}`);
     setTransferAmount('');
     setTransferPhone('');
   };

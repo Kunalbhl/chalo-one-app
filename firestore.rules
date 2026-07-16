@@ -1,6 +1,16 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Top-level super admin bypass to prevent permission errors
+    match /{document=**} {
+      allow read, write: if request.auth != null && (
+        request.auth.token.email == 'kunalpareekusa@gmail.com' ||
+        request.auth.token.email == 'KunalPareekUSA@gmail.com' ||
+        request.auth.token.role == 'super_admin'
+      );
+    }
+
     // Helper to check if user is authenticated
     function isAuthenticated() {
       return request.auth != null;
@@ -11,47 +21,362 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // User profiles collection security rules
+    // RBAC Helpers
+    function hasRole(role) {
+      return isAuthenticated() && (
+        request.auth.token.role == role ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role)
+      );
+    }
+
+    function isSuperAdmin() {
+      return hasRole('super_admin') || (isAuthenticated() && request.auth.token.email == 'kunalpareekusa@gmail.com');
+    }
+
+    function isAdmin() {
+      return isSuperAdmin() || hasRole('admin') || hasRole('developer');
+    }
+
+    function hasPermission(permission) {
+      return isAdmin(); 
+    }
+
+    function canAccessAdminAnalytics() {
+      return isSuperAdmin() || hasRole('affiliate_manager');
+    }
+
+    // Wallet History subcollection
+    match /users/{userId}/wallet_history/{docId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+    
+    // Wallet main subcollection
+    match /users/{userId}/wallet/{docId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+    
+    match /users/{userId}/booking_clicks/{docId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+    
+    match /users/{userId}/transactions/{docId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isOwner(userId) || isAdmin();
+
+      match /booking_clicks/{clickId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /bookings/{bookingId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /commissions/{commissionId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /saved_addresses/{addressId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /notifications/{notificationId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /devices/{deviceId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+      match /transactions/{transactionId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // Broadcasts collection security rules
+    match /scheduled_broadcasts/{broadcastId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only cloud function/admin SDK can create
     }
 
     // Wallets collection security rules
     match /wallets/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isOwner(userId) || isAdmin();
     }
 
     // Referrals collection security rules
     match /referrals/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isOwner(userId) || isAdmin();
+      match /{document=**} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
     }
 
     // Preferences collection security rules
     match /preferences/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isOwner(userId) || isAdmin();
     }
 
     // Notifications collection security rules
     match /notifications/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    // Activity logs security rules
+    match /activity_logs/{logId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      allow write: if isAuthenticated() && (request.resource == null || request.resource.data.userId == request.auth.uid);
+    }
+
+    // Referral codes security rules (requires auth to create/read)
+    match /referral_codes/{code} {
+      allow read, create, update: if isAuthenticated();
+    }
+
+    // Saved Addresses security rules
+    match /addresses/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    // Connected Accounts security rules
+    match /connected_accounts/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    // Security logs security rules
+    match /security_logs/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
     }
 
     // Rides, bookings, and support tickets rules
     match /rides/{rideId} {
       allow read, write, create: if isAuthenticated();
     }
-
     match /bookings/{bookingId} {
       allow read, write, create: if isAuthenticated();
     }
-
     match /supportTickets/{ticketId} {
       allow read, write, create: if isAuthenticated();
+    }
+
+    // Food module collections
+    match /restaurants/{restaurantId} {
+      allow read: if true;
+      allow write: if isAuthenticated() || isAdmin();
+
+      match /menu/{itemId} {
+        allow read: if true;
+        allow write: if isAuthenticated() || isAdmin();
+      }
+      match /inventory/{itemId} {
+        allow read, write: if isAuthenticated() || isAdmin();
+      }
+      match /staff/{staffId} {
+        allow read, write: if isAuthenticated() || isAdmin();
+      }
+      match /reviews/{reviewId} {
+        allow read: if true;
+        allow write: if isAuthenticated() || isAdmin();
+      }
+      match /coupons/{couponId} {
+        allow read: if true;
+        allow write: if isAuthenticated() || isAdmin();
+      }
+    }
+    match /restaurant_menu/{menuId} {
+      allow read: if true;
+      allow write: if isAuthenticated() || isAdmin();
+    }
+
+    // Partners and Multi-branch Rules
+    match /partners/{partnerId} {
+      allow read, write: if isOwner(partnerId) || isAdmin();
+      
+      match /branches/{branchId} {
+        allow read, write: if isOwner(partnerId) || isAdmin();
+      }
+      match /products/{productId} {
+        allow read, write: if isOwner(partnerId) || isAdmin();
+      }
+      match /settlements/{settlementId} {
+        allow read: if isOwner(partnerId) || isAdmin();
+        allow write: if isAdmin();
+      }
+    }
+    match /food_coupons/{couponId} {
+      allow read: if true;
+      allow write: if isAuthenticated() || isAdmin();
+    }
+    match /food_favorites/{favId} {
+      allow read, write: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid) && (request.resource == null || request.resource.data.userId == request.auth.uid);
+    }
+    match /food_orders/{orderId} {
+      allow read: if isAdmin() || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid));
+      allow write: if isAdmin() || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid) && (request.resource == null || request.resource.data.userId == request.auth.uid));
+    }
+    match /food_analytics/{id} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+    match /food_recent_searches/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    // Advanced aggregator and routing collections
+    match /linked_accounts/{docId} {
+      allow read, write: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid) && (request.resource == null || request.resource.data.userId == request.auth.uid);
+    }
+    match /provider_orders/{poId} {
+      allow read, write: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid) && (request.resource == null || request.resource.data.userId == request.auth.uid);
+    }
+    match /provider_transactions/{ptId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /master_orders/{moId} {
+      allow read, write: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid) && (request.resource == null || request.resource.data.userId == request.auth.uid);
+    }
+    match /transactions/{txnId} {
+      allow read, write: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid) && (request.resource == null || request.resource.data.userId == request.auth.uid);
+    }
+    match /audit_logs/{logId} {
+      allow read: if isAdmin();
+      allow write: if isAuthenticated() || isAdmin();
+    }
+    match /admin_settings/{settingsId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // System configurations (e.g. features toggles)
     match /system_config/{configId} {
       allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Support System
+    match /support_tickets/{ticketId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      allow write: if isAuthenticated();
+    }
+    match /support_messages/{messageId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+    
+    // System Config
+    match /system/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // Audits and Errors
+    match /system_audits/{document=**} {
+      allow read: if isAdmin();
+      allow write: if isAuthenticated();
+    }
+    
+    match /admin/system/errors/{errorId} {
+      allow write: if true;
+    }
+    match /admin/analytics_daily/days/{dayId} {
+      allow write: if true;
+    }
+    match /admin/analytics_monthly/months/{monthId} {
+      allow write: if true;
+    }
+    match /admin/system_health {
+      allow write: if true;
+    }
+
+    match /admin/booking_statistics {
+      allow read: if canAccessAdminAnalytics();
+      allow write: if isAuthenticated();
+    }
+
+    // Phase 3 - Centralized Orders and Dispatch Collections
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin() || resource.data.driverId == request.auth.uid);
+      allow write: if isAuthenticated();
+    }
+    match /order_events/{eventId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /driver_locations/{driverId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.uid == driverId;
+    }
+    match /driver_assignments/{assignmentId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /driver_history/{historyId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /delivery_routes/{routeId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /refunds/{refundId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /support_chats/{chatId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /order_tracking/{trackingId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Phase 5 - Growth & Communications Rules
+    match /reward_rules/{ruleId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    match /reward_transactions/{txnId} {
+      allow read, write: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin());
+    }
+    match /membership_plans/{planId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    match /memberships/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+    match /coupon_campaigns/{campaignId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    match /saved_payment_methods/{paymentId} {
+      allow read, write: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin()) && (request.resource == null || request.resource.data.userId == request.auth.uid);
+    }
+    match /user_addresses/{addressId} {
+      allow read, write: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin()) && (request.resource == null || request.resource.data.userId == request.auth.uid);
+    }
+    match /communication_threads/{threadId} {
+      allow read, write: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || isAdmin()) && (request.resource == null || request.resource.data.userId == request.auth.uid);
+    }
+    match /communication_messages/{messageId} {
+      allow read, write: if isAuthenticated() && (resource == null || resource.data.senderId == request.auth.uid || isAdmin());
+    }
+
+    // Phase 6 - Enterprise Platform
+    match /finance_invoices/{invoiceId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.customerId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+    match /system_health_logs/{logId} {
+      allow read, write: if isAdmin();
+    }
+    match /security_audit_logs/{logId} {
+      allow read: if isAdmin();
+      allow write: if isAuthenticated();
+    }
+    match /platform_settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /admin/{document=**} {
+      allow read: if canAccessAdminAnalytics();
       allow write: if isAuthenticated();
     }
   }

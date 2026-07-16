@@ -1,10 +1,11 @@
+import { safeStorage, safeSessionStorage } from '../utils/storage';
 import React, { useState, useEffect } from 'react';
-import { RIDE_CATALOG } from '../data';
 import { RideOption, SelectedRide } from '../types';
 import { MapPin, Navigation, Compass, ShieldAlert, PhoneCall, Star, Clock, AlertCircle, Sparkles, CheckCircle, ArrowLeft, RefreshCw, Plus, Trash2, Calendar, FileText, Check, Shield, SlidersHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ChaloMapView from './ChaloMapView';
 import { auth } from '../firebase';
+import { DriverService } from '../services/driverService';
 
 interface RidesModuleProps {
   preferenceMode: string;
@@ -18,6 +19,7 @@ interface RidesModuleProps {
   redirectToLinkedAccounts?: () => void;
   onBackRegister?: (handler: (() => boolean) | null) => void;
   initialDestination?: string;
+  userProfile?: any;
 }
 
 export default function RidesModule({
@@ -31,7 +33,8 @@ export default function RidesModule({
   currentSelectedLocation,
   redirectToLinkedAccounts,
   onBackRegister,
-  initialDestination
+  initialDestination,
+  userProfile
 }: RidesModuleProps) {
   const [pickup, setPickup] = useState(currentSelectedLocation || 'Koramangala, Bangalore');
   const [destination, setDestination] = useState(initialDestination || '');
@@ -233,8 +236,8 @@ export default function RidesModule({
 
       // Check if non-local (distance > 50 km)
       if (calculatedDistance > 50) {
-        localStorage.setItem('chalo_intercity_pickup', pickup);
-        localStorage.setItem('chalo_intercity_destination', destination);
+        safeStorage.setItem('chalo_intercity_pickup', pickup);
+        safeStorage.setItem('chalo_intercity_destination', destination);
         setRedirectingToIntercity(true);
         setTimeout(() => {
           setRedirectingToIntercity(false);
@@ -284,8 +287,8 @@ export default function RidesModule({
 
       // Check if non-local (distance > 50 km)
       if (calculatedDistance > 50) {
-        localStorage.setItem('chalo_intercity_pickup', pickup);
-        localStorage.setItem('chalo_intercity_destination', destName);
+        safeStorage.setItem('chalo_intercity_pickup', pickup);
+        safeStorage.setItem('chalo_intercity_destination', destName);
         setRedirectingToIntercity(true);
         setTimeout(() => {
           setRedirectingToIntercity(false);
@@ -314,25 +317,12 @@ export default function RidesModule({
 
   // Ride booking selections are handled natively via detailed confirmation page flow
 
-  // Monitor selectedRide to simulate live status updates
+  // Monitor selectedRide to check live status updates
   useEffect(() => {
     if (!selectedRide) return;
     
-    // Reset live status to driver assigned at startup
+    // Set live status to driver assigned at startup. Real applications would poll Firestore here.
     setTripLiveStatus('driver_assigned');
-
-    const t1 = setTimeout(() => {
-      setTripLiveStatus('arriving');
-    }, 5000);
-
-    const t2 = setTimeout(() => {
-      setTripLiveStatus('active');
-    }, 12000);
-
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
   }, [selectedRide]);
 
   // Total Fare calculations for viewingDetailRide
@@ -349,53 +339,64 @@ export default function RidesModule({
 
   const { originalPrice, stopsFare, hourlyFare, adjustedPickupFare, totalFare, platformFees } = getConfirmationPricing();
 
-  const handleConfirmAndBook = () => {
+  const handleConfirmAndBook = async () => {
     if (!viewingDetailRide) return;
     
-    // Deduct coins/balance
-    deductWalletCoins(totalFare);
+    // Check for actual available drivers first
+    try {
+      // We will simulate finding a driver via real service call, but since no drivers might be registered, 
+      // we'll fetch them. If none, we'll alert the user.
+       
+      const availableDrivers = await DriverService.getAvailableDrivers();
+      if (availableDrivers.length === 0) {
+        alert("We're sorry, no drivers are currently available in your area. Please try again in a few minutes.");
+        return;
+      }
 
-    const driverNames = ["Rajesh Kumar", "Amit Singh", "Manpreet S.", "Suresh Gowda", "Arjun Prasad"];
-    const vehicles = ["KA-03-MJ-5120", "KA-51-AB-8109", "KA-01-EE-4412", "KA-04-NX-7845", "KA-02-PP-9011"];
-    const randomDriver = driverNames[Math.floor(Math.random() * driverNames.length)];
-    const randomVehicle = vehicles[Math.floor(Math.random() * vehicles.length)];
-    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+      const assignedDriver = availableDrivers[0]; // simplistic assignment
 
-    const finalPickup = reconfirmPickupAddress || pickup;
+      // Deduct coins/balance
+      deductWalletCoins(totalFare);
 
-    const newRide: SelectedRide = {
-      option: { ...viewingDetailRide, price: totalFare },
-      pickup: finalPickup,
-      destination,
-      driverName: randomDriver,
-      driverPhone: "+91 98765 4" + Math.floor(10000 + Math.random() * 90000),
-      vehicleNumber: randomVehicle,
-      status: 'driver_assigned',
-      driverLat: 12.9352,
-      driverLng: 77.6245,
-      otp
-    };
+      const finalPickup = reconfirmPickupAddress || pickup;
 
-    setSelectedRide(newRide);
-    setTripLiveStatus('driver_assigned');
+      const newRide: SelectedRide = {
+        option: { ...viewingDetailRide, price: totalFare },
+        pickup: finalPickup,
+        destination,
+        driverName: assignedDriver.name || "Chalo Partner",
+        driverPhone: assignedDriver.phone || "N/A",
+        vehicleNumber: assignedDriver.vehicleNumber || "N/A",
+        status: 'driver_assigned',
+        driverLat: assignedDriver.latitude || 12.9352,
+        driverLng: assignedDriver.longitude || 77.6245,
+        otp: "1234" // Fixed OTP for simplicity since real SMS is omitted
+      };
 
-    // Save transaction activity logs with platform fees instead of commission
-    addOrderToActivity({
-      id: "CHALO-RIDE-" + Math.floor(100000 + Math.random() * 900000),
-      category: 'rides',
-      platform: viewingDetailRide.platform,
-      merchant: `Cab: ${viewingDetailRide.vehicleType}`,
-      title: `${finalPickup} ➔ ${destination}`,
-      subtitle: `Driver Assigned: ${randomDriver} (${randomVehicle})`,
-      date: "Today",
-      time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-      amount: totalFare,
-      status: 'active',
-      statusLabel: 'Ongoing',
-      paymentMethod: chosenPaymentMode === 'wallet' ? 'Chalo One Wallet Balance' : chosenPaymentMode === 'upi' ? 'GPay UPI Verified' : 'NetBanking Secure Direct',
-      pickupCoords: pickupCoords,
-      destCoords: destCoords || { lat: 12.9716, lng: 77.5946 }
-    });
+      setSelectedRide(newRide);
+      setTripLiveStatus('driver_assigned');
+
+      // Save transaction activity logs
+      addOrderToActivity({
+        id: crypto.randomUUID().slice(0, 12),
+        category: 'rides',
+        platform: viewingDetailRide.platform,
+        merchant: `Cab: ${viewingDetailRide.vehicleType}`,
+        title: `${finalPickup} ➔ ${destination}`,
+        subtitle: `Driver Assigned: ${newRide.driverName} (${newRide.vehicleNumber})`,
+        date: "Today",
+        time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        amount: totalFare,
+        status: 'active',
+        statusLabel: 'Ongoing',
+        paymentMethod: chosenPaymentMode === 'wallet' ? 'Chalo One Wallet Balance' : chosenPaymentMode === 'upi' ? 'GPay UPI Verified' : 'NetBanking Secure Direct',
+        pickupCoords: pickupCoords,
+        destCoords: destCoords || { lat: 12.9716, lng: 77.5946 }
+      });
+    } catch (e) {
+      console.error(e);
+      alert("An error occurred while booking. Please try again.");
+    }
   };
 
   const handleSOS = () => {
@@ -998,7 +999,7 @@ export default function RidesModule({
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400">Authenticated user</span>
-                    <span className="font-mono text-amber-400 font-bold text-[11px]">{auth.currentUser?.email || 'developer@chalo-one.ai'}</span>
+                    <span className="font-mono text-amber-400 font-bold text-[11px]">{userProfile?.email || 'developer@chalo-one.ai'}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400">Token handshake</span>

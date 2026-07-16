@@ -13,18 +13,20 @@ import {
   orderBy,
   limit,
   DocumentData,
-  QueryConstraint
+  QueryConstraint,
+  serverTimestamp
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 
-export enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
+export const OperationType = {
+  CREATE: 'create',
+  UPDATE: 'update',
+  DELETE: 'delete',
+  LIST: 'list',
+  GET: 'get',
+  WRITE: 'write',
+} as const;
+export type OperationType = typeof OperationType[keyof typeof OperationType];
 
 export interface FirestoreErrorInfo {
   error: string;
@@ -73,7 +75,7 @@ export const FirestoreService = {
       const docRef = doc(db, collectionPath, docId);
       await setDoc(docRef, {
         ...data,
-        updatedAt: new Date().toISOString()
+        updatedAt: serverTimestamp()
       }, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `${collectionPath}/${docId}`);
@@ -105,7 +107,7 @@ export const FirestoreService = {
       const docRef = doc(db, collectionPath, docId);
       await updateDoc(docRef, {
         ...data,
-        updatedAt: new Date().toISOString()
+        updatedAt: serverTimestamp()
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `${collectionPath}/${docId}`);

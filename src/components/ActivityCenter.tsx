@@ -1,8 +1,11 @@
+import { safeStorage, safeSessionStorage } from '../utils/storage';
 import React, { useState } from 'react';
 import { OngoingActivity } from '../types';
-import { PlayCircle, Clock, MapPin, Search, Calendar, Heart, ArrowUpRight, CheckCircle2, ChevronRight, Fuel, Map } from 'lucide-react';
+import { PlayCircle, Clock, MapPin, Search, Calendar, Heart, ArrowUpRight, CheckCircle2, ChevronRight, Fuel, Map, RefreshCw } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import ActiveRideMap from './ActiveRideMap';
+import { getAuth } from 'firebase/auth';
+import { LiveOperationsService } from '../services/liveOperationsService';
 
 interface ActivityCenterProps {
   activityList: OngoingActivity[];
@@ -24,6 +27,147 @@ export default function ActivityCenter({ activityList, cancelActivity, onActivit
   const [isPdfDownloading, setIsPdfDownloading] = useState<boolean>(false);
   const [ticketSubmittedId, setTicketSubmittedId] = useState<string>('');
   const [expandedMapId, setExpandedMapId] = useState<string | null>(null);
+
+  // Live Operations Phase 4 states
+  const [enteredOtp, setEnteredOtp] = useState<string>('');
+  const [isOtpVerifying, setIsOtpVerifying] = useState<boolean>(false);
+  const [otpError, setOtpError] = useState<string>('');
+  const [otpSuccess, setOtpSuccess] = useState<boolean>(false);
+
+  const [restRating, setRestRating] = useState<number>(5);
+  const [driveRating, setDriveRating] = useState<number>(5);
+  const [reviewComment, setReviewComment] = useState<string>('');
+  const [isReviewSubmitting, setIsReviewSubmitting] = useState<boolean>(false);
+  const [ratedActivities, setRatedActivities] = useState<Record<string, boolean>>({});
+
+  const [favoritesMap, setFavoritesMap] = useState<Record<string, boolean>>({});
+  const [isReordering, setIsReordering] = useState<boolean>(false);
+  const [reorderSuccessId, setReorderSuccessId] = useState<string>('');
+
+  // Fetch and sync favorites
+  React.useEffect(() => {
+    const fetchFavs = async () => {
+      try {
+         
+        const auth = getAuth();
+        const user = auth.currentUser;
+        if (!user) return;
+         
+        const favs = await LiveOperationsService.getUserFavorites(user.uid);
+        const map: Record<string, boolean> = {};
+        favs.forEach(f => {
+          map[f.itemId] = true;
+        });
+        setFavoritesMap(map);
+      } catch (err) {
+        console.warn("Failed to fetch user favorites:", err);
+      }
+    };
+    fetchFavs();
+  }, [selectedItem]);
+
+  const handleFavoriteToggle = async () => {
+    if (!selectedItem) return;
+    try {
+       
+      const auth = getAuth();
+      const user = auth.currentUser;
+      const uId = user?.uid || 'anonymous-user';
+       
+      
+      const res = await LiveOperationsService.toggleFavorite(
+        uId,
+        selectedItem.category === 'rides' || selectedItem.category === 'intercity' ? 'route' : selectedItem.category === 'stays' ? 'stay' : 'restaurant',
+        selectedItem.id,
+        selectedItem.title,
+        undefined,
+        { category: selectedItem.category, platform: selectedItem.platform }
+      );
+      
+      setFavoritesMap(prev => ({
+        ...prev,
+        [selectedItem.id]: res
+      }));
+    } catch (err) {
+      console.error("Failed to toggle favorite:", err);
+    }
+  };
+
+  const handleOtpVerifySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedItem || !enteredOtp) return;
+    setIsOtpVerifying(true);
+    setOtpError('');
+    setOtpSuccess(false);
+    try {
+       
+      const res = await LiveOperationsService.verifyDeliveryAndComplete(
+        selectedItem.id,
+        enteredOtp
+      );
+      if (res.success) {
+        setOtpSuccess(true);
+        setEnteredOtp('');
+        setSelectedItem(prev => prev ? { ...prev, status: 'completed' } : null);
+      } else {
+        setOtpError(res.message || 'Invalid OTP. Please try again.');
+      }
+    } catch (err: any) {
+      setOtpError(err.message || 'Verification failed. Please try again.');
+    } finally {
+      setIsOtpVerifying(false);
+    }
+  };
+
+  const handleRatingSubmit = async () => {
+    if (!selectedItem) return;
+    setIsReviewSubmitting(true);
+    try {
+       
+      const auth = getAuth();
+      const user = auth.currentUser;
+       
+      
+      await LiveOperationsService.submitReview({
+        orderId: selectedItem.id,
+        userId: user?.uid || 'anonymous-user',
+        userName: user?.displayName || user?.email?.split('@')[0] || 'Kunal Pareek',
+        partnerId: selectedItem.platform || 'default-partner',
+        driverId: selectedItem.category === 'rides' ? 'driver-amit-kumar' : undefined,
+        restaurantRating: restRating,
+        driverRating: selectedItem.category === 'rides' ? driveRating : undefined,
+        comment: reviewComment || 'Excellent service!'
+      });
+
+      setRatedActivities(prev => ({ ...prev, [selectedItem.id]: true }));
+      setReviewComment('');
+    } catch (err) {
+      console.error("Failed to submit review:", err);
+    } finally {
+      setIsReviewSubmitting(false);
+    }
+  };
+
+  const handleReorderSubmit = async () => {
+    if (!selectedItem) return;
+    setIsReordering(true);
+    setReorderSuccessId('');
+    try {
+       
+      const auth = getAuth();
+      const user = auth.currentUser;
+      const uId = user?.uid || 'anonymous-user';
+       
+      
+      const newOrderId = await LiveOperationsService.reorder(selectedItem.id, uId);
+      setReorderSuccessId(newOrderId);
+    } catch (err: any) {
+      console.error("Failed to reorder:", err);
+      alert("Reorder failed: " + err.message);
+    } finally {
+      setIsReordering(false);
+    }
+  };
 
   const handleTimelineSearch = (val: string) => {
     setSearchVal(val);
@@ -116,7 +260,7 @@ export default function ActivityCenter({ activityList, cancelActivity, onActivit
         doc.setFontSize(9.5);
         doc.setTextColor(71, 85, 105); // slate-600
         
-        const receiptNo = `REC-${Math.floor(100000 + Math.random() * 900000)}`;
+        const receiptNo = `REC-${parseInt(crypto.randomUUID().slice(0, 4), 16)}`;
         
         doc.text(`Receipt Number:`, 20, 68);
         doc.setFont('Helvetica', 'bold');
@@ -248,7 +392,7 @@ export default function ActivityCenter({ activityList, cancelActivity, onActivit
 =========================================
             CHALO ONE RECEIPT
 =========================================
-Receipt No:     REC-${Math.floor(100000 + Math.random() * 900000)}
+Receipt No:     REC-${parseInt(crypto.randomUUID().slice(0, 4), 16)}
 Booking ID:     ${selectedItem.id}
 Category:       ${selectedItem.category.toUpperCase()}
 Platform:       ${selectedItem.platform}
@@ -277,7 +421,7 @@ TOTAL AMOUNT:   ₹${selectedItem.amount}.00
       return;
     }
 
-    const ticketId = `TKT-${Math.floor(100000 + Math.random() * 900000)}`;
+    const ticketId = `TKT-${parseInt(crypto.randomUUID().slice(0, 4), 16)}`;
     
     const categoryLabel = 
       selectedItem.category === 'rides' ? 'Ride Comparison' : 
@@ -308,8 +452,8 @@ TOTAL AMOUNT:   ₹${selectedItem.amount}.00
     if (addSupportTicket) {
       addSupportTicket(ticket);
     } else {
-      const saved = JSON.parse(localStorage.getItem('chalo_support_tickets') || '[]');
-      localStorage.setItem('chalo_support_tickets', JSON.stringify([ticket, ...saved]));
+      const saved = JSON.parse(safeStorage.getItem('chalo_support_tickets') || '[]');
+      safeStorage.setItem('chalo_support_tickets', JSON.stringify([ticket, ...saved]));
     }
 
     setTicketSubmittedId(ticketId);
@@ -507,6 +651,7 @@ TOTAL AMOUNT:   ₹${selectedItem.amount}.00
                     {expandedMapId === item.id && item.pickupCoords && item.destCoords && (
                       <div className="pt-3 border-t border-gray-150" onClick={(e) => e.stopPropagation()}>
                         <ActiveRideMap 
+                          orderId={item.id}
                           pickupCoords={item.pickupCoords}
                           destCoords={item.destCoords}
                           driverName={item.subtitle?.split('Captain: ')[1]?.split(' • ')[0] || item.subtitle?.split('Assigned: ')[1]?.split(' (')[0] || "Amit Kumar"}
@@ -625,13 +770,27 @@ TOTAL AMOUNT:   ₹${selectedItem.amount}.00
                 </h3>
                 <p className="text-[10px] text-gray-400 font-mono mt-0.5">Booking Reference ID: {selectedItem.id}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedItem(null)}
-                className="text-gray-400 hover:text-gray-700 bg-gray-50 hover:bg-gray-100 p-2 rounded-full text-sm font-bold cursor-pointer transition"
-              >
-                ✕
-              </button>
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleFavoriteToggle}
+                  className={`p-2 rounded-full border transition cursor-pointer flex items-center justify-center ${
+                    favoritesMap[selectedItem.id]
+                      ? 'bg-rose-50 text-rose-600 border-rose-200 shadow-xs'
+                      : 'bg-gray-50 text-gray-400 border-gray-200 hover:text-gray-600 hover:bg-gray-100'
+                  }`}
+                  title={favoritesMap[selectedItem.id] ? 'Remove from Favorites' : 'Add to Favorites'}
+                >
+                  <Heart className={`w-4 h-4 ${favoritesMap[selectedItem.id] ? 'fill-rose-600' : ''}`} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedItem(null)}
+                  className="text-gray-400 hover:text-gray-700 bg-gray-50 hover:bg-gray-100 p-2 rounded-full text-sm font-bold cursor-pointer transition flex items-center justify-center"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* Complete Transaction & Booking Details */}
@@ -681,6 +840,7 @@ TOTAL AMOUNT:   ₹${selectedItem.amount}.00
                     <div className="pt-2">
                       <span className="text-[9.5px] text-gray-400 font-mono font-black uppercase tracking-wider block mb-1.5">Interactive Driver Tracking</span>
                       <ActiveRideMap 
+                        orderId={selectedItem.id}
                         pickupCoords={selectedItem.pickupCoords}
                         destCoords={selectedItem.destCoords}
                         driverName={selectedItem.subtitle?.split('Captain: ')[1]?.split(' • ')[0] || selectedItem.subtitle?.split('Assigned: ')[1]?.split(' (')[0] || "Amit Kumar"}
@@ -693,8 +853,53 @@ TOTAL AMOUNT:   ₹${selectedItem.amount}.00
               )}
             </div>
 
+            {/* OTP Handshake / Completion Segment */}
+            {selectedItem.status === 'ongoing' && (
+              <div className="border border-indigo-150 bg-indigo-50/10 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-sm">🔑</span>
+                  <h4 className="font-bold text-xs text-indigo-950">Secure OTP Delivery Handshake</h4>
+                </div>
+                <p className="text-[10px] text-gray-500 leading-normal">
+                  Give this OTP to the driver on arrival, or verify it below to simulate the completion of this service.
+                </p>
+                
+                <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-gray-150">
+                  <span className="text-gray-500 font-bold text-[10.5px]">Your Delivery OTP:</span>
+                  <span className="font-mono bg-indigo-100 text-indigo-800 font-black px-2.5 py-0.5 rounded text-sm animate-pulse">
+                    {selectedItem.otpConfirm || '9912'}
+                  </span>
+                </div>
+
+                <form onSubmit={handleOtpVerifySubmit} className="flex gap-2">
+                  <input
+                    type="text"
+                    maxLength={4}
+                    value={enteredOtp}
+                    onChange={(e) => setEnteredOtp(e.target.value)}
+                    placeholder="Enter 4-digit OTP"
+                    className="w-full text-xs font-bold font-mono outline-none p-2 border border-gray-200 bg-white rounded-xl focus:border-indigo-500"
+                    required
+                  />
+                  <button
+                    type="submit"
+                    disabled={isOtpVerifying}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[10px] uppercase tracking-wider rounded-xl transition shrink-0 cursor-pointer"
+                  >
+                    {isOtpVerifying ? 'Verifying...' : 'Verify & Complete'}
+                  </button>
+                </form>
+                {otpError && (
+                  <p className="text-[10px] text-red-600 font-bold">{otpError}</p>
+                )}
+                {otpSuccess && (
+                  <p className="text-[10px] text-emerald-600 font-bold">✓ OTP Verified! Delivery completed successfully.</p>
+                )}
+              </div>
+            )}
+
             {/* Downable PDF Receipt Segment - ONLY accessible once done & delivered */}
-            {(selectedItem.status === 'completed' || selectedItem.status === 'delivered') ? (
+            {(selectedItem.status === 'completed' || (selectedItem.status as any) === 'delivered') ? (
               <div className="border border-gray-150 rounded-2xl p-4 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div>
@@ -723,6 +928,104 @@ TOTAL AMOUNT:   ₹${selectedItem.amount}.00
                 <p className="text-[11px] text-amber-800 font-bold">
                   🔒 Receipt download will become active once your order is fully completed/delivered.
                 </p>
+              </div>
+            )}
+
+            {/* Order Again (Reorder) & Rating Segment */}
+            {selectedItem.status === 'completed' && (
+              <div className="border border-gray-150 rounded-2xl p-4 space-y-3 bg-slate-50/50">
+                <div className="flex items-center justify-between pb-2 border-b border-gray-200/50">
+                  <span className="text-[10.5px] font-black uppercase text-gray-500 font-mono tracking-wider">Fast Reorder</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleReorderSubmit}
+                  disabled={isReordering}
+                  className="w-full py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-black text-[10.5px] tracking-widest uppercase rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center space-x-1.5 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isReordering ? 'animate-spin' : ''}`} />
+                  <span>{isReordering ? 'Duplicating Order...' : 'Order / Ride Again'}</span>
+                </button>
+                {reorderSuccessId && (
+                  <div className="p-2.5 bg-emerald-50 border border-emerald-150 rounded-xl text-[10px] text-emerald-800 text-center font-bold animate-fade-in">
+                    ✓ Reorder created successfully! New Order ID: <strong className="font-mono text-emerald-900">{reorderSuccessId}</strong>.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Ratings & Reviews Segment */}
+            {selectedItem.status === 'completed' && (
+              <div className="border border-gray-150 rounded-2xl p-4 space-y-3 bg-amber-50/10">
+                <div className="flex items-center space-x-1">
+                  <span className="text-sm">⭐</span>
+                  <h4 className="font-bold text-xs text-amber-950">Rate Your Experience</h4>
+                </div>
+
+                {ratedActivities[selectedItem.id] ? (
+                  <div className="bg-amber-50/50 border border-amber-200 p-3 rounded-xl text-[10.5px] text-center space-y-1 animate-fade-in">
+                    <span className="font-bold text-amber-800 block">✓ Thank you for your feedback!</span>
+                    <p className="text-amber-700 leading-snug">
+                      Your rating has been synced with our dispatcher analytics console.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10.5px] font-bold text-gray-600">Merchant/Restaurant Rating:</span>
+                      <div className="flex items-center space-x-1">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            type="button"
+                            key={star}
+                            onClick={() => setRestRating(star)}
+                            className="p-0.5 cursor-pointer"
+                          >
+                            <span className={`text-xl leading-none transition-colors ${restRating >= star ? 'text-amber-400' : 'text-gray-300'}`}>★</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {selectedItem.category === 'rides' && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10.5px] font-bold text-gray-600">Driver/Captain Rating:</span>
+                        <div className="flex items-center space-x-1">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <button
+                              type="button"
+                              key={star}
+                              onClick={() => setDriveRating(star)}
+                              className="p-0.5 cursor-pointer"
+                            >
+                              <span className={`text-xl leading-none transition-colors ${driveRating >= star ? 'text-amber-400' : 'text-gray-300'}`}>★</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-1">
+                      <span className="text-[9px] text-gray-400 font-mono font-black uppercase tracking-wider block">Write a short review</span>
+                      <textarea
+                        rows={2}
+                        value={reviewComment}
+                        onChange={(e) => setReviewComment(e.target.value)}
+                        placeholder="Share your experience..."
+                        className="w-full bg-white border border-gray-150 rounded-xl p-2.5 text-xs text-gray-700 outline-none focus:border-amber-400 resize-none font-medium"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleRatingSubmit}
+                      disabled={isReviewSubmitting}
+                      className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white font-black text-[10px] tracking-widest uppercase rounded-xl transition shadow-xs cursor-pointer flex items-center justify-center"
+                    >
+                      {isReviewSubmitting ? 'Submitting Review...' : 'Submit Feedback'}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

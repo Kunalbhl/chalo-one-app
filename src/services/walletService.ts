@@ -1,5 +1,6 @@
 import { FirestoreService } from './firestoreService';
 import { ChaloWallet, WalletTransaction } from '../types';
+import { NotificationService } from './notificationService';
 
 export const WalletService = {
   /**
@@ -17,7 +18,7 @@ export const WalletService = {
     if (!doc) return;
 
     const transaction: WalletTransaction = {
-      id: `TXN-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: `TXN-${Date.now()}-${parseInt(crypto.randomUUID().slice(0, 4), 16)}`,
       type: 'credit',
       amount,
       pointsSpentOrEarned: 0,
@@ -32,6 +33,9 @@ export const WalletService = {
     };
 
     await FirestoreService.setDocument('wallets', userId, updatedWallet);
+    
+    // Automatically trigger notification
+    await NotificationService.notifyWalletCredit(userId, amount, 0, description);
   },
 
   /**
@@ -43,7 +47,7 @@ export const WalletService = {
     if (doc.balance < amount) throw new Error('Insufficient wallet balance');
 
     const transaction: WalletTransaction = {
-      id: `TXN-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: `TXN-${Date.now()}-${parseInt(crypto.randomUUID().slice(0, 4), 16)}`,
       type: 'debit',
       amount,
       pointsSpentOrEarned: 0,
@@ -58,6 +62,9 @@ export const WalletService = {
     };
 
     await FirestoreService.setDocument('wallets', userId, updatedWallet);
+    
+    // Automatically trigger notification
+    await NotificationService.notifyWalletDebit(userId, amount, 0, description);
   },
 
   /**
@@ -68,7 +75,7 @@ export const WalletService = {
     if (!doc) return;
 
     const transaction: WalletTransaction = {
-      id: `TXN-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: `TXN-${Date.now()}-${parseInt(crypto.randomUUID().slice(0, 4), 16)}`,
       type: 'credit',
       amount: 0,
       pointsSpentOrEarned: points,
@@ -83,6 +90,9 @@ export const WalletService = {
     };
 
     await FirestoreService.setDocument('wallets', userId, updatedWallet);
+
+    // Automatically trigger notification
+    await NotificationService.notifyWalletCredit(userId, 0, points, description);
   },
 
   /**
@@ -94,7 +104,7 @@ export const WalletService = {
     if (doc.points < points) throw new Error('Insufficient reward points');
 
     const transaction: WalletTransaction = {
-      id: `TXN-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: `TXN-${Date.now()}-${parseInt(crypto.randomUUID().slice(0, 4), 16)}`,
       type: 'debit',
       amount: amountEquivalent, // is added to wallet balance as cash, or treated as debit of points
       pointsSpentOrEarned: points,
@@ -109,5 +119,9 @@ export const WalletService = {
     };
 
     await FirestoreService.setDocument('wallets', userId, updatedWallet);
+
+    // Automatically trigger notification
+    await NotificationService.notifyWalletDebit(userId, 0, points, `Points redeemed: ${description}`);
+    await NotificationService.notifyWalletCredit(userId, amountEquivalent, 0, `Equivalent cash credit: ${description}`);
   }
 };

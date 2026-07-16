@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { APIProvider, Map, Marker } from '@vis.gl/react-google-maps';
+import { Map, Marker } from '@vis.gl/react-google-maps';
 import { Play, Pause, RefreshCw, Compass, MapPin, Navigation, Info, Car, ChevronRight } from 'lucide-react';
+import { db } from '../firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 interface ActiveRideMapProps {
+  orderId?: string;
+  driverId?: string;
   pickupCoords: { lat: number; lng: number };
   destCoords: { lat: number; lng: number };
   driverName?: string;
@@ -10,20 +14,9 @@ interface ActiveRideMapProps {
   statusLabel?: string;
 }
 
-import firebaseConfig from '../../firebase-applet-config.json';
-import { getAppCheckToken } from '../firebase';
-
-const API_KEY = firebaseConfig.apiKey || 'AIzaSyCycCOkBHlCiXCvcxtO-sAuj-DmCXVmCqQ';
-
-export default function ActiveRideMap(props: ActiveRideMapProps) {
-  return (
-    <APIProvider apiKey={API_KEY} version="weekly" fetchAppCheckToken={getAppCheckToken}>
-      <ActiveRideMapInner {...props} />
-    </APIProvider>
-  );
-}
-
-function ActiveRideMapInner({
+export default function ActiveRideMap({
+  orderId,
+  driverId,
   pickupCoords,
   destCoords,
   driverName = "Amit Kumar",
@@ -34,35 +27,61 @@ function ActiveRideMapInner({
   const [isPlaying, setIsPlaying] = useState(true);
   const [mapType, setMapType] = useState<'roadmap' | 'satellite'>('roadmap');
   const [speed, setSpeed] = useState(45); // km/h
+  const [driverPos, setDriverPos] = useState<{ lat: number; lng: number } | null>(null);
 
-  // Simulate smooth driver movement
+  // Real-time Firestore Telemetry Subscription
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!db || !orderId) return;
+
+    const orderRef = doc(db, 'orders', orderId);
+    const unsub = onSnapshot(orderRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.driverLocation) {
+          const loc = data.driverLocation;
+          if (loc.latitude && loc.longitude) {
+            setDriverPos({ lat: Number(loc.latitude), lng: Number(loc.longitude) });
+          }
+          if (loc.speed !== undefined) {
+            setSpeed(Number(loc.speed));
+          }
+        }
+      }
+    }, (err) => {
+      console.warn("Telemetry subscription warning:", err);
+    });
+
+    return () => unsub();
+  }, [orderId]);
+
+  // Simulate smooth driver movement (graceful fallback when live telemetry is offline)
+  useEffect(() => {
+    if (!isPlaying || driverPos) return;
 
     const interval = setInterval(() => {
       setProgress((prev) => {
         if (prev >= 1.0) {
-          // Reset to beginning or stay at 100%
           return 0.0;
         }
-        // Small step forward
         return prev + 0.01;
       });
 
-      // Randomly fluctuate speed a bit for realism
       setSpeed((prev) => {
-        const delta = (Math.random() - 0.5) * 6;
+        const delta = (0.5 - 0.5) * 6;
         const newSpeed = Math.round(prev + delta);
         return Math.max(25, Math.min(65, newSpeed));
       });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isPlaying]);
+  }, [isPlaying, driverPos]);
 
-  // Interpolated driver position
-  const driverLat = pickupCoords.lat + (destCoords.lat - pickupCoords.lat) * progress;
-  const driverLng = pickupCoords.lng + (destCoords.lng - pickupCoords.lng) * progress;
+  // Interpolated driver position fallback or real-time Firestore position
+  const simLat = pickupCoords.lat + (destCoords.lat - pickupCoords.lat) * progress;
+  const simLng = pickupCoords.lng + (destCoords.lng - pickupCoords.lng) * progress;
+
+  const driverLat = driverPos ? driverPos.lat : simLat;
+  const driverLng = driverPos ? driverPos.lng : simLng;
 
   // Calculate distance remaining (approximate straight-line)
   const getDistanceInKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -79,7 +98,14 @@ function ActiveRideMapInner({
   };
 
   const totalDistance = getDistanceInKm(pickupCoords.lat, pickupCoords.lng, destCoords.lat, destCoords.lng);
-  const distanceRemaining = totalDistance * (1 - progress);
+  const distTravelled = getDistanceInKm(pickupCoords.lat, pickupCoords.lng, driverLat, driverLng);
+  
+  // Calculate active progress ratio
+  const activeProgress = driverPos 
+    ? (totalDistance > 0 ? Math.min(1.0, distTravelled / totalDistance) : progress) 
+    : progress;
+
+  const distanceRemaining = totalDistance * (1 - activeProgress);
   const etaMins = speed > 0 ? Math.round((distanceRemaining / speed) * 60) : 0;
 
   return (
